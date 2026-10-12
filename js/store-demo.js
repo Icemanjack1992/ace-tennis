@@ -102,9 +102,9 @@ function seed() {
   pm.createdAt = addHours(nowIso(), -17); pm.deadline = addHours(pm.createdAt, 48);
   db.matches.push(pm);
   // Incoming challenge
-  db.challenges.push({ id: uid(), fromId: jasur.id, toId: me.id, at: addHours(nowIso(), 50), format: 'single', status: 'sent', note: 'Сыграем на кортах в Давлатободе?', createdAt: nowIso() });
+  db.challenges.push({ id: uid(), fromId: jasur.id, toId: me.id, at: addHours(nowIso(), 50), format: 'single', status: 'sent', note: 'Сыграем на кортах в Давлатободе?', shareFrom: true, createdAt: nowIso() });
   // Upcoming accepted game
-  db.challenges.push({ id: uid(), fromId: me.id, toId: ilhom.id, at: addHours(nowIso(), 26), format: 'single', status: 'accepted', note: '', createdAt: nowIso() });
+  db.challenges.push({ id: uid(), fromId: me.id, toId: ilhom.id, at: addHours(nowIso(), 26), format: 'single', status: 'accepted', note: '', shareFrom: true, shareTo: true, createdAt: nowIso() });
 
   // Tournaments: one running (silver), one open for registration (bronze)
   const silverish = [...players].sort((a, b) => b.rating - a.rating).slice(4, 12);
@@ -277,14 +277,28 @@ export class DemoStore {
     const id = this.db.meId;
     return clone(this.db.challenges.filter((c) => c.fromId === id || c.toId === id).sort((a, b) => a.at.localeCompare(b.at)));
   }
-  async createChallenge({ toId, at, format, note }) {
-    this.db.challenges.push({ id: uid(), fromId: this.db.meId, toId, at, format, note, status: 'sent', createdAt: nowIso() });
+  async createChallenge({ toId, at, format, note, share = false }) {
+    this.db.challenges.push({ id: uid(), fromId: this.db.meId, toId, at, format, note, status: 'sent', shareFrom: !!share, shareTo: false, createdAt: nowIso() });
     this.save();
   }
-  async answerChallenge(id, status) {
+  async answerChallenge(id, status, share = false) {
     const c = this.db.challenges.find((x) => x.id === id);
     if (c.toId !== this.db.meId) throw new Error('Нет доступа');
-    c.status = status; this.save();
+    c.status = status; c.shareTo = status === 'accepted' && !!share; this.save();
+  }
+  async contacts() {
+    const me = this.db.meId; const out = {};
+    for (const c of this.db.challenges) {
+      const other = this.db.users.find((u) => u.id === (c.fromId === me ? c.toId : c.fromId));
+      if (!other?.phone) continue;
+      if ((c.toId === me && c.shareFrom && c.status !== 'declined') || (c.fromId === me && c.shareTo && c.status === 'accepted')) out[c.id] = other.phone;
+    }
+    return out;
+  }
+  async sharePhone(id) {
+    const c = this.db.challenges.find((x) => x.id === id); const me = this.db.meId;
+    if (c.fromId === me) c.shareFrom = true; else if (c.toId === me) c.shareTo = true;
+    this.save();
   }
 
   // ---------- coaches ----------

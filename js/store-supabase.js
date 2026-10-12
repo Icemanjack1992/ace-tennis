@@ -36,22 +36,167 @@ const toTournament = (r, entries = []) => ({
   status: r.status, bracket: r.bracket, createdAt: r.created_at,
   entries: entries.filter((e) => e.tournament_id === r.id).map((e) => ({ userId: e.user_id, status: e.status })),
 });
+// Phone numbers are not readable by other users (supabase/update-02.sql)
+const PROFILE_COLS = 'id,role,first_name,last_name,photo_url,gender,birth_year,district,years,self_level,hand,availability,rating,matches,wins,form,league,points_q,points_y,q_key,y_key,fp_sum,fp_count,banned_until,top10_days,top1_days,coach_verified,coach,lang,created_at,tg_username';
+// Supabase auth messages → Russian
+function authError(m = '') {
+  if (/invalid login credentials/i.test(m)) return 'Неверная почта или пароль';
+  if (/already registered|already been registered|already exists/i.test(m)) return 'Эта почта уже зарегистрирована — нажмите «Вход»';
+  if (/password should be at least|weak password|password.*characters/i.test(m)) return 'Пароль слишком простой: минимум 6 символов';
+  if (/valid email|invalid.*email|unable to validate email/i.test(m)) return 'Проверьте адрес почты';
+  if (/email not confirmed/i.test(m)) return 'Почта не подтверждена — откройте письмо от Supabase';
+  if (/rate limit|too many/i.test(m)) return 'Слишком много попыток, подождите минуту';
+  if (/signups not allowed|signup.*disabled/i.test(m)) return 'Регистрация по почте выключена в настройках Supabase';
+  return m;
+}
 const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 
+// Speed: read queries are cached for a short time, so going back and forth between screens is instant.
+// Any change (match, challenge, profile…) clears the cache.
+const QUERY_TTL = 30e3;      // lists: ranking, news, tournaments…
+const USERS_TTL = 60e3;      // all profiles
+const PENDING_TTL = 30e3;    // "waiting for my confirmation" gate
+const CACHED = ['contacts', 'ranking', 'leaders', 'fairplayRanking', 'achievements', 'suggestOpponent', 'challenges', 'outgoing', 'history',
+  'coachStats', 'canReview', 'coachRanking', 'ratedFairplay', 'complaints', 'disputes', 'tournaments', 'tournament', 'news', 'stats'];
+const MUTATIONS = ['sharePhone', 'saveProfile', 'createMatch', 'createTraining', 'confirm', 'dispute', 'cancelOwn', 'createChallenge', 'answerChallenge',
+  'addReview', 'rateFairplay', 'complain', 'resolveComplaint', 'resolveDispute', 'setBan', 'applyTournament', 'createTournament',
+  'approveEntry', 'startTournament', 'createTournamentMatch', 'addNews', 'addComment', 'hideComment', 'inviteCoach'];
+// These change ratings / profiles, so the profile list is reloaded too
+const PROFILE_MUTATIONS = new Set(['saveProfile', 'confirm', 'rateFairplay', 'resolveComplaint', 'resolveDispute', 'setBan', 'createTournamentMatch', 'inviteCoach']);
+// Telegram login nonce lives 15 minutes; localStorage survives iPhone reloading the app while you are in Telegram
+const TG_KEY = 'ace_tg_login';
+const tgRead = () => { try { const v = JSON.parse(localStorage.getItem(TG_KEY) || 'null'); return v && Date.now() - v.t < 15 * 60e3 ? v : null; } catch { return null; } };
+const tgWrite = (v) => { try { v ? localStorage.setItem(TG_KEY, JSON.stringify(v)) : localStorage.removeItem(TG_KEY); } catch { /* ignore */ } };
+
+// Instant start: the last data is kept on the phone. The app opens with it at once,
+// then fresh data comes in the background and the screen updates quietly.
+const SNAP_KEY = 'ace_snap_v1';
+const snapRead = () => { try { return JSON.parse(localStorage.getItem(SNAP_KEY) || 'null'); } catch { return null; } };
+const snapClear = () => { try { localStorage.removeItem(SNAP_KEY); } catch { /* ignore */ } };
+const LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+const SYNC = new Set(['constructor', 'init', 'refresh', 'memo', 'invalidate', 'me', 'user', 'uid', 'pendingPeek', 'telegramNonce',
+  'telegramPending', 'telegramClicked', 'notify', 'changed', 'saveSnap', 'listUsers', 'newsItem', 'fairplayRanking']);
+
 export class SupabaseStore {
-  constructor(url, key) { this.mode = 'live'; this.url = url; this.key = key; this.users = []; this.meCache = null; }
+  constructor(url, key) {
+    this.mode = 'live'; this.url = url; this.key = key; this.users = []; this.meCache = null;
+    this.usersAt = 0; this.cache = new Map(); this.pendingLast = null;
+    // Load the Supabase library right away, in parallel with everything else
+    this.ready = import(LIB).then(({ createClient }) => { this.sb = createClient(url, key, { auth: { persistSession: true } }); });
+    // Every request waits for the library (only the very first moment after start)
+    for (const name of Object.getOwnPropertyNames(SupabaseStore.prototype)) {
+      if (SYNC.has(name)) continue;
+      const fn = this[name];
+      if (typeof fn === 'function') this[name] = async (...args) => { await this.ready; return fn.apply(this, args); };
+    }
+    for (const name of CACHED) {
+      const fn = this[name];
+      this[name] = (...args) => this.memo(`${name}:${JSON.stringify(args)}`, QUERY_TTL, () => fn.apply(this, args));
+    }
+    for (const name of MUTATIONS) {
+      const fn = this[name];
+      this[name] = async (...args) => {
+        try { return await fn.apply(this, args); } finally {
+          this.cache.clear(); this.pendingLast = null;
+          if (PROFILE_MUTATIONS.has(name)) this.usersAt = 0;
+        }
+      };
+    }
+  }
+  // Cached read. Old data is returned at once and refreshed in the background ("stale while revalidate").
+  memo(key, ttl, fn) {
+    const hit = this.cache.get(key);
+    if (hit && Date.now() - hit.t < ttl) return hit.p;
+    if (hit && hit.done) {
+      if (!hit.busy) {
+        hit.busy = true;
+        fn().then((v) => {
+          if (this.cache.get(key) !== hit) return;
+          this.cache.set(key, { t: Date.now(), p: Promise.resolve(v), v, done: true });
+          if (JSON.stringify(v) !== JSON.stringify(hit.v)) this.changed(); else this.saveSnap();
+        }).catch(() => { hit.busy = false; });
+      }
+      return hit.p;
+    }
+    const entry = { t: Date.now(), p: null, v: undefined, done: false };
+    entry.p = fn();
+    entry.p.then((v) => { entry.v = v; entry.done = true; this.saveSnap(); },
+      () => { if (this.cache.get(key) === entry) this.cache.delete(key); });
+    this.cache.set(key, entry);
+    return entry.p;
+  }
+  // Drop everything cached (used when the app comes back from the background)
+  invalidate() { this.cache.clear(); this.usersAt = 0; this.pendingLast = null; }
+  // New data arrived in the background → the app re-draws the current screen
+  changed() {
+    this.saveSnap();
+    clearTimeout(this.changedTimer);
+    this.changedTimer = setTimeout(() => window.dispatchEvent(new Event('ace:data')), 60);
+  }
+  saveSnap() {
+    clearTimeout(this.snapTimer);
+    this.snapTimer = setTimeout(() => {
+      if (!this.meCache) return;
+      const q = {};
+      for (const [k, e] of this.cache) if (e.done) q[k] = e.v;
+      const snap = { v: 1, meId: this.meCache.id, phone: this.meCache.phone || '', users: this.users, q, pending: this.pendingLast?.v || null };
+      try { localStorage.setItem(SNAP_KEY, JSON.stringify(snap)); } catch { try { localStorage.setItem(SNAP_KEY, JSON.stringify({ ...snap, q: {} })); } catch { /* full */ } }
+    }, 800);
+  }
 
   async init() {
-    const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
-    this.sb = createClient(this.url, this.key, { auth: { persistSession: true } });
+    const snap = snapRead();
+    if (snap?.v === 1 && snap.meId && snap.users?.length) {
+      // Open instantly with the saved data
+      this.users = snap.users;
+      this.meCache = this.users.find((u) => u.id === snap.meId) || null;
+      if (this.meCache) {
+        this.meCache.phone = snap.phone;
+        for (const [k, v] of Object.entries(snap.q || {})) this.cache.set(k, { t: 0, p: Promise.resolve(v), v, done: true });
+        if (snap.pending) this.pendingLast = { t: 0, v: snap.pending };
+        // In the background: check the login is still valid, load fresh profiles
+        this.ready.then(async () => {
+          const { data } = await this.sb.auth.getSession();
+          if (!data.session || data.session.user.id !== snap.meId) {
+            snapClear(); this.meCache = null; this.users = []; this.invalidate();
+            window.dispatchEvent(new Event('ace:loggedout')); return;
+          }
+          const before = JSON.stringify(this.users);
+          await this.refresh(true);
+          if (JSON.stringify(this.users) !== before) this.changed();
+        }).catch(() => {});
+        return;
+      }
+    }
+    await this.ready;
     const { data } = await this.sb.auth.getSession();
     if (data.session) await this.refresh();
   }
-  async refresh() {
-    const { data: s } = await this.sb.auth.getSession();
-    if (!s.session) { this.meCache = null; return; }
-    this.users = check(await this.sb.from('profiles').select('*')).map(toUser);
-    this.meCache = this.users.find((u) => u.id === s.session.user.id) || null;
+  // Loads all profiles (one request) — skipped when fresh, shared when several screens ask at once.
+  // If profiles are already known but old, answers at once and refreshes in the background.
+  refresh(force = false) {
+    if (!force && this.usersAt && Date.now() - this.usersAt < USERS_TTL) return Promise.resolve();
+    if (this.refreshing && !force && !this.users.length) return this.refreshing;
+    if (!force && this.users.length && this.meCache) {
+      if (!this.refreshing) {
+        const before = JSON.stringify(this.users);
+        this.refresh(true).then(() => { if (JSON.stringify(this.users) !== before) this.changed(); }).catch(() => {});
+      }
+      return Promise.resolve();
+    }
+    const run = (async () => {
+      await this.ready;
+      const { data: s } = await this.sb.auth.getSession();
+      if (!s.session) { this.meCache = null; this.users = []; this.usersAt = 0; return; }
+      const [rows, phone] = await Promise.all([this.sb.from('profiles').select(PROFILE_COLS), this.sb.rpc('my_phone')]);
+      this.users = check(rows).map(toUser);
+      this.meCache = this.users.find((u) => u.id === s.session.user.id) || null;
+      if (this.meCache) this.meCache.phone = phone.data || '';
+      this.usersAt = Date.now();
+      this.saveSnap();
+    })();
+    this.refreshing = run.finally(() => { if (this.refreshing === run) this.refreshing = null; });
+    return this.refreshing;
   }
   me() { return this.meCache; }
   user(id) { return this.users.find((u) => u.id === id) || null; }
@@ -61,39 +206,55 @@ export class SupabaseStore {
   async sendCode(phone) { check(await this.sb.auth.signInWithOtp({ phone })); return { ok: true }; }
   async verifyCode(phone, code) {
     check(await this.sb.auth.verifyOtp({ phone, token: code, type: 'sms' }));
-    await this.refresh();
+    snapClear(); this.invalidate(); await this.refresh(true);
     return { user: this.meCache, isNew: !this.meCache?.firstName };
   }
-  async signOut() { await this.sb.auth.signOut(); this.meCache = null; }
+  // ---------- e-mail + password ----------
+  async signUpEmail(email, password) {
+    const { data, error } = await this.sb.auth.signUp({ email, password });
+    if (error) throw new Error(authError(error.message));
+    if (!data.session) return { confirm: true }; // "Confirm email" is on in Supabase
+    snapClear(); this.invalidate(); await this.refresh(true);
+    return { user: this.meCache };
+  }
+  async signInEmail(email, password) {
+    const { error } = await this.sb.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(authError(error.message));
+    snapClear(); this.invalidate(); await this.refresh(true);
+    return { user: this.meCache };
+  }
+  async signOut() { snapClear(); await this.sb.auth.signOut(); this.meCache = null; this.users = []; this.invalidate(); }
 
   // ---------- Telegram bot login ----------
   telegramNonce() {
-    let n = null;
-    try { n = sessionStorage.getItem('ace_tg_nonce'); } catch { /* ignore */ }
-    if (!n) {
-      n = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
-      try { sessionStorage.setItem('ace_tg_nonce', n); } catch { /* ignore */ }
-      this._tgNonce = n;
-    }
-    return n || this._tgNonce;
+    let v = tgRead();
+    if (!v) { v = { n: [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join(''), t: Date.now(), clicked: false }; tgWrite(v); }
+    return v.n;
   }
-  telegramPending() { try { return sessionStorage.getItem('ace_tg_clicked') === '1'; } catch { return false; } }
+  telegramPending() { return !!tgRead()?.clicked; }
+  telegramClicked() { const v = tgRead(); if (v) tgWrite({ ...v, clicked: true }); }
   async telegramCheck(nonce) {
-    try { sessionStorage.setItem('ace_tg_clicked', '1'); } catch { /* ignore */ }
     const { data, error } = await this.sb.functions.invoke('telegram-login', { body: { nonce } });
     if (error) throw new Error(error.message);
-    const done = () => { try { sessionStorage.removeItem('ace_tg_nonce'); sessionStorage.removeItem('ace_tg_clicked'); } catch { /* ignore */ } };
     if (data.status === 'ready') {
       check(await this.sb.auth.verifyOtp({ token_hash: data.token_hash, type: 'email' }));
-      done(); await this.refresh();
-    } else if (data.status === 'expired' || data.status === 'used') done();
+      tgWrite(null); snapClear(); this.invalidate(); await this.refresh(true);
+    } else if (data.status === 'expired' || data.status === 'used') tgWrite(null);
     return data.status;
+  }
+  // Telegram message to the other side (challenge, match to confirm…). Never blocks the app.
+  notify(kind, id) {
+    if (!id) return;
+    this.ready.then(() => this.sb.functions.invoke('telegram-login', { body: { action: 'notify', kind, id } })).catch(() => {});
   }
 
   // ---------- users ----------
   async saveProfile(patch) {
-    check(await this.sb.from('profiles').update(fromUser(patch)).eq('id', this.uid()));
-    await this.refresh(); return this.meCache;
+    // The phone is protected: it is saved through a database function (also turns an invited coach into a coach)
+    if (patch.phone !== undefined) check(await this.sb.rpc('set_my_phone', { p_phone: patch.phone }));
+    const row = fromUser(patch);
+    if (Object.keys(row).length) check(await this.sb.from('profiles').update(row).eq('id', this.uid()));
+    await this.refresh(true); return this.meCache;
   }
   async uploadPhoto(file) {
     const path = `${this.uid()}/${Date.now()}.jpg`;
@@ -104,62 +265,79 @@ export class SupabaseStore {
 
   // ---------- matches & trainings ----------
   async createMatch(d) {
-    return toMatch(check(await this.sb.from('matches').insert({
+    const m = toMatch(check(await this.sb.from('matches').insert({
       type: d.type, team_a: d.teamA, team_b: d.teamB, sets: d.sets, decider: d.decider, played_at: d.playedAt, created_by: this.uid(),
     }).select().single()));
+    if (m.status === 'pending') this.notify('match', m.id);
+    return m;
   }
   async createTraining(d) {
-    return toTraining(check(await this.sb.from('trainings').insert({
+    const t = toTraining(check(await this.sb.from('trainings').insert({
       player_id: this.uid(), coach_id: d.coachId || null, hours: d.hours, skills: d.skills, note: d.note, played_at: d.playedAt,
       status: d.coachId ? 'pending' : 'confirmed',
     }).select().single()));
+    if (t.status === 'pending') this.notify('training', t.id);
+    return t;
   }
   async pending() {
-    const id = this.uid();
-    const ms = check(await this.sb.from('matches').select('*').eq('status', 'pending').gt('deadline', new Date().toISOString())
-      .or(`team_a.cs.{${id}},team_b.cs.{${id}}`)).map(toMatch)
-      .filter((m) => (m.teamA.includes(m.createdBy) ? m.teamB : m.teamA).includes(id));
-    const ts = check(await this.sb.from('trainings').select('*').eq('status', 'pending').eq('coach_id', id)
-      .gt('deadline', new Date().toISOString())).map(toTraining);
-    return { matches: ms, trainings: ts, count: ms.length + ts.length };
+    const id = this.uid(); const now = new Date().toISOString();
+    const [mr, tr] = await Promise.all([
+      this.sb.from('matches').select('*').eq('status', 'pending').gt('deadline', now).or(`team_a.cs.{${id}},team_b.cs.{${id}}`),
+      this.sb.from('trainings').select('*').eq('status', 'pending').eq('coach_id', id).gt('deadline', now),
+    ]);
+    const ms = check(mr).map(toMatch).filter((m) => (m.teamA.includes(m.createdBy) ? m.teamB : m.teamA).includes(id));
+    const ts = check(tr).map(toTraining);
+    const v = { matches: ms, trainings: ts, count: ms.length + ts.length };
+    this.pendingLast = { t: Date.now(), v }; this.saveSnap();
+    return v;
+  }
+  // Last known gate result without waiting. Refreshes in the background when old; calls onChange if something new appeared.
+  pendingPeek(onChange) {
+    const c = this.pendingLast;
+    if (!c) return null;
+    if (Date.now() - c.t > PENDING_TTL && !this.pendingBusy) {
+      this.pendingBusy = this.pending().then((v) => { if (v.count > 0) onChange?.(v); }).catch(() => {}).finally(() => { this.pendingBusy = null; });
+    }
+    return c.v;
   }
   async outgoing() {
     const id = this.uid();
-    const ms = check(await this.sb.from('matches').select('*').eq('created_by', id)
-      .or('status.eq.pending,and(status.eq.cancelled,expired.eq.true,complained.eq.false)')).map(toMatch);
-    const ts = check(await this.sb.from('trainings').select('*').eq('player_id', id).eq('status', 'pending')).map(toTraining);
-    return { matches: ms, trainings: ts };
+    const [mr, tr] = await Promise.all([
+      this.sb.from('matches').select('*').eq('created_by', id).or('status.eq.pending,and(status.eq.cancelled,expired.eq.true,complained.eq.false)'),
+      this.sb.from('trainings').select('*').eq('player_id', id).eq('status', 'pending'),
+    ]);
+    return { matches: check(mr).map(toMatch), trainings: check(tr).map(toTraining) };
   }
   async confirm(kind, id) {
     check(await this.sb.rpc(kind === 'match' ? 'confirm_match' : 'confirm_training', kind === 'match' ? { p_match: id } : { p_training: id }));
-    await this.refresh();
+    this.pendingLast = null; await this.refresh(true);
   }
   async dispute(kind, id, reason) { check(await this.sb.rpc('dispute_record', { p_kind: kind, p_id: id, p_reason: reason })); }
   async cancelOwn(kind, id) { check(await this.sb.rpc('cancel_own', { p_kind: kind, p_id: id })); }
   async history(userId) {
-    const ms = check(await this.sb.from('matches').select('*').eq('status', 'confirmed')
-      .or(`team_a.cs.{${userId}},team_b.cs.{${userId}}`).order('played_at', { ascending: false }).limit(50)).map(toMatch);
-    const ts = check(await this.sb.from('trainings').select('*').eq('status', 'confirmed')
-      .or(`player_id.eq.${userId},coach_id.eq.${userId}`).order('played_at', { ascending: false }).limit(50)).map(toTraining);
-    return { matches: ms, trainings: ts };
+    const [mr, tr] = await Promise.all([
+      this.sb.from('matches').select('*').eq('status', 'confirmed').or(`team_a.cs.{${userId}},team_b.cs.{${userId}}`).order('played_at', { ascending: false }).limit(50),
+      this.sb.from('trainings').select('*').eq('status', 'confirmed').or(`player_id.eq.${userId},coach_id.eq.${userId}`).order('played_at', { ascending: false }).limit(50),
+    ]);
+    return { matches: check(mr).map(toMatch), trainings: check(tr).map(toTraining) };
   }
 
   // ---------- rating ----------
   async ranking({ league, period }) {
-    let q = this.sb.from('profiles').select('*').gt('matches', 0).neq('role', 'admin');
+    let q = this.sb.from('profiles').select(PROFILE_COLS).gt('matches', 0).neq('role', 'admin');
     if (league) q = q.eq('league', league);
     const col = period === 'year' ? 'points_y' : 'points_q';
     const rows = check(await q.order(col, { ascending: false }).order('rating', { ascending: false }).limit(100));
     return rows.map(toUser).map((u, i) => ({ ...u, place: i + 1, points: period === 'year' ? u.pointsY : u.pointsQ }));
   }
   async leaders() {
-    await this.refresh();
+    const month = new Date(); month.setDate(1); month.setHours(0, 0, 0, 0);
+    const [, mr] = await Promise.all([this.refresh(), this.sb.from('matches').select('team_a,team_b').eq('status', 'confirmed').gte('played_at', month.toISOString())]);
     const ps = this.users.filter((u) => u.role !== 'admin' && u.matches > 0);
     if (!ps.length) return { top1: null, streak: null, active: null, activeCount: 0 };
     const top1 = [...ps].sort((a, b) => b.top1Days - a.top1Days)[0];
     const streak = [...ps].sort((a, b) => b.form.match(/^В*/)[0].length - a.form.match(/^В*/)[0].length)[0];
-    const month = new Date(); month.setDate(1); month.setHours(0, 0, 0, 0);
-    const ms = check(await this.sb.from('matches').select('team_a,team_b').eq('status', 'confirmed').gte('played_at', month.toISOString()));
+    const ms = check(mr);
     const cnt = {}; for (const m of ms) for (const id of [...m.team_a, ...m.team_b]) cnt[id] = (cnt[id] || 0) + 1;
     const active = [...ps].sort((a, b) => (cnt[b.id] || 0) - (cnt[a.id] || 0))[0];
     return { top1, streak, active, activeCount: cnt[active.id] || 0 };
@@ -176,10 +354,11 @@ export class SupabaseStore {
 
   // ---------- search & challenges ----------
   async suggestOpponent() {
-    const me = this.meCache; await this.refresh();
+    const me = this.meCache;
     const since = new Date(Date.now() - 21 * 864e5).toISOString();
-    const recent = check(await this.sb.from('matches').select('team_a,team_b').eq('status', 'confirmed').gte('played_at', since)
-      .or(`team_a.cs.{${me.id}},team_b.cs.{${me.id}}`));
+    const [, rr] = await Promise.all([this.refresh(), this.sb.from('matches').select('team_a,team_b').eq('status', 'confirmed').gte('played_at', since)
+      .or(`team_a.cs.{${me.id}},team_b.cs.{${me.id}}`)]);
+    const recent = check(rr);
     const played = new Set(recent.flatMap((m) => [...m.team_a, ...m.team_b]));
     const c = this.users.filter((u) => u.role === 'player' && u.id !== me.id && u.firstName && !played.has(u.id))
       .map((u) => ({ u, s: Math.abs(u.rating - me.rating) - 40 * u.availability.filter((t) => me.availability.includes(t)).length }))
@@ -188,18 +367,32 @@ export class SupabaseStore {
   }
   async challenges() {
     return check(await this.sb.from('challenges').select('*').order('at')).map((c) => ({
-      id: c.id, fromId: c.from_id, toId: c.to_id, at: c.at, format: c.format, note: c.note, status: c.status, createdAt: c.created_at }));
+      id: c.id, fromId: c.from_id, toId: c.to_id, at: c.at, format: c.format, note: c.note, status: c.status, createdAt: c.created_at,
+      shareFrom: !!c.share_from, shareTo: !!c.share_to }));
   }
-  async createChallenge({ toId, at, format, note }) {
-    check(await this.sb.from('challenges').insert({ from_id: this.uid(), to_id: toId, at, format, note }));
+  async createChallenge({ toId, at, format, note, share = false }) {
+    const row = check(await this.sb.from('challenges').insert({ from_id: this.uid(), to_id: toId, at, format, note, share_from: !!share }).select('id').single());
+    this.notify('challenge', row?.id);
   }
-  async answerChallenge(id, status) { check(await this.sb.rpc('answer_challenge', { p_id: id, p_status: status })); }
+  async answerChallenge(id, status, share = false) {
+    check(await this.sb.rpc('answer_challenge', { p_id: id, p_status: status, p_share: !!share }));
+    this.notify('answer', id);
+  }
+  // Phone numbers opponents chose to show me: { challengeId: '998…' }
+  async contacts() {
+    const rows = check(await this.sb.rpc('my_contacts')) || [];
+    return Object.fromEntries(rows.map((r) => [r.challenge_id, r.phone]));
+  }
+  async sharePhone(challengeId) { check(await this.sb.rpc('share_phone', { p_id: challengeId })); }
 
   // ---------- coaches ----------
   async coachStats(coachId) {
-    const ts = check(await this.sb.from('trainings').select('player_id,hours').eq('coach_id', coachId).eq('status', 'confirmed'));
-    const rv = check(await this.sb.from('reviews').select('*').eq('coach_id', coachId).order('created_at', { ascending: false }))
-      .map((r) => ({ id: r.id, coachId: r.coach_id, authorId: r.author_id, stars: Number(r.stars), text: r.text, createdAt: r.created_at }));
+    const [tr, rr] = await Promise.all([
+      this.sb.from('trainings').select('player_id,hours').eq('coach_id', coachId).eq('status', 'confirmed'),
+      this.sb.from('reviews').select('*').eq('coach_id', coachId).order('created_at', { ascending: false }),
+    ]);
+    const ts = check(tr);
+    const rv = check(rr).map((r) => ({ id: r.id, coachId: r.coach_id, authorId: r.author_id, stars: Number(r.stars), text: r.text, createdAt: r.created_at }));
     const avg = rv.length ? Math.round((rv.reduce((s, r) => s + r.stars, 0) / rv.length) * 10) / 10 : null;
     return { trainings: ts.length, students: new Set(ts.map((t) => t.player_id)).size, hours: ts.reduce((s, t) => s + Number(t.hours), 0), avg, reviews: rv };
   }
@@ -211,9 +404,18 @@ export class SupabaseStore {
     check(await this.sb.from('reviews').upsert({ coach_id: coachId, author_id: this.uid(), stars, text }, { onConflict: 'coach_id,author_id' }));
   }
   async coachRanking() {
-    await this.refresh();
-    const out = [];
-    for (const c of this.users.filter((u) => u.role === 'coach')) out.push({ ...c, stats: await this.coachStats(c.id) });
+    // Two requests for all coaches together (instead of two per coach)
+    const [, tr, rr] = await Promise.all([
+      this.refresh(),
+      this.sb.from('trainings').select('coach_id,player_id,hours').eq('status', 'confirmed').not('coach_id', 'is', null),
+      this.sb.from('reviews').select('coach_id,stars'),
+    ]);
+    const ts = check(tr); const rv = check(rr);
+    const out = this.users.filter((u) => u.role === 'coach').map((c) => {
+      const t = ts.filter((x) => x.coach_id === c.id); const r = rv.filter((x) => x.coach_id === c.id);
+      const avg = r.length ? Math.round((r.reduce((s, x) => s + Number(x.stars), 0) / r.length) * 10) / 10 : null;
+      return { ...c, stats: { trainings: t.length, students: new Set(t.map((x) => x.player_id)).size, hours: t.reduce((s, x) => s + Number(x.hours), 0), avg, reviews: [] } };
+    });
     return out.sort((a, b) => b.stats.students - a.stats.students || b.stats.trainings - a.stats.trainings);
   }
 
@@ -238,14 +440,13 @@ export class SupabaseStore {
 
   // ---------- tournaments ----------
   async tournaments() {
-    const ts = check(await this.sb.from('tournaments').select('*').order('created_at', { ascending: false }));
-    const es = check(await this.sb.from('tournament_entries').select('*'));
-    return ts.map((t) => toTournament(t, es));
+    const [tr, er] = await Promise.all([this.sb.from('tournaments').select('*').order('created_at', { ascending: false }), this.sb.from('tournament_entries').select('*')]);
+    const es = check(er);
+    return check(tr).map((t) => toTournament(t, es));
   }
   async tournament(id) {
-    const t = check(await this.sb.from('tournaments').select('*').eq('id', id).single());
-    const es = check(await this.sb.from('tournament_entries').select('*').eq('tournament_id', id));
-    return toTournament(t, es);
+    const [tr, er] = await Promise.all([this.sb.from('tournaments').select('*').eq('id', id).single(), this.sb.from('tournament_entries').select('*').eq('tournament_id', id)]);
+    return toTournament(check(tr), check(er));
   }
   async applyTournament(id) {
     const me = this.meCache; const fp = fairplay(me.fpSum, me.fpCount);
@@ -266,8 +467,8 @@ export class SupabaseStore {
 
   // ---------- news ----------
   async news() {
-    const ns = check(await this.sb.from('news').select('*').order('created_at', { ascending: false }).limit(30));
-    const cs = check(await this.sb.from('news_comments').select('*').order('created_at'));
+    const [nr, cr] = await Promise.all([this.sb.from('news').select('*').order('created_at', { ascending: false }).limit(30), this.sb.from('news_comments').select('*').order('created_at')]);
+    const ns = check(nr); const cs = check(cr);
     return ns.map((n) => ({ id: n.id, title: n.title, body: n.body, section: n.section, photos: n.photos, createdAt: n.created_at,
       comments: cs.filter((c) => c.news_id === n.id).map((c) => ({ id: c.id, userId: c.user_id, text: c.text, createdAt: c.created_at })) }));
   }
@@ -279,12 +480,15 @@ export class SupabaseStore {
   // ---------- admin ----------
   async inviteCoach({ phone, firstName, lastName }) { check(await this.sb.rpc('invite_coach', { p_phone: phone, p_first: firstName, p_last: lastName })); }
   async stats() {
-    await this.refresh();
     const week = new Date(Date.now() - 7 * 864e5).toISOString();
     const month = new Date(Date.now() - 30 * 864e5).toISOString();
-    const mw = await this.sb.from('matches').select('id', { count: 'exact', head: true }).eq('status', 'confirmed').gte('played_at', week);
-    const tw = await this.sb.from('trainings').select('id', { count: 'exact', head: true }).eq('status', 'confirmed').gte('played_at', week);
-    const am = check(await this.sb.from('matches').select('team_a,team_b').gte('played_at', month));
+    const [, mw, tw, amr] = await Promise.all([
+      this.refresh(),
+      this.sb.from('matches').select('id', { count: 'exact', head: true }).eq('status', 'confirmed').gte('played_at', week),
+      this.sb.from('trainings').select('id', { count: 'exact', head: true }).eq('status', 'confirmed').gte('played_at', week),
+      this.sb.from('matches').select('team_a,team_b').gte('played_at', month),
+    ]);
+    const am = check(amr);
     return {
       users: this.users.filter((u) => u.role === 'player').length,
       coaches: this.users.filter((u) => u.role === 'coach').length,

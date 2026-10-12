@@ -28,7 +28,13 @@ export const icon = {
 export const logo = (size = 32) => `<svg role="img" aria-label="Ace Tennis" width="${size}" height="${size}" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#D8F244"/><path d="M31 75 50 24l19 51" fill="none" stroke="#0E3B2C" stroke-width="${size < 36 ? 10 : 8}" stroke-linecap="round" stroke-linejoin="round"/><path d="M37 57q13 7 26 0" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/></svg>`;
 
 // Required profile fields are filled (admins are exempt)
-export const profileDone = (u) => !!u && (u.role === 'admin' || !!(u.firstName && u.lastName && u.gender && u.district && u.availability?.length));
+export const profileDone = (u) => !!u && (u.role === 'admin' || !!(u.firstName && u.lastName && u.gender && u.district && u.availability?.length && u.phone));
+// '+998 90 123 45 67' / '901234567' → '998901234567', or '' if it is not a Uzbek mobile number
+export function normPhone(p) {
+  let d = String(p || '').replace(/\D/g, '');
+  if (/^\d{9}$/.test(d)) d = '998' + d;
+  return /^998\d{9}$/.test(d) ? d : '';
+}
 
 export const fullName = (u) => u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() || L('Без имени', 'Ismsiz') : '—';
 export const shortName = (u) => u ? `${u.firstName || ''} ${u.lastName ? u.lastName[0] + '.' : ''}`.trim() : '—';
@@ -55,6 +61,54 @@ export function fmtDate(iso, withTime = false) {
   return `${d.getDate()} ${m}${withTime ? ', ' + t : ''}`;
 }
 export function hoursLeft(iso) { return Math.max(0, Math.round((new Date(iso) - Date.now()) / 3600e3)); }
+// '998901234567' → '+998 90 123 45 67'
+export function fmtPhone(p) {
+  const d = String(p || '').replace(/\D/g, '');
+  return d.length === 12 ? `+${d.slice(0, 3)} ${d.slice(3, 5)} ${d.slice(5, 8)} ${d.slice(8, 10)} ${d.slice(10)}` : (p || '');
+}
+// 1 год, 2 года, 5 лет
+const plural = (n, [one, few, many]) => { const a = Math.abs(n) % 100, b = a % 10; return a > 10 && a < 20 ? many : b === 1 ? one : b > 1 && b < 5 ? few : many; };
+export function yearsText(n, kind = 'tennis') {
+  n = Number(n) || 0;
+  const y = `${n} ${L(plural(n, ['год', 'года', 'лет']), 'yil')}`;
+  if (kind === 'exp') return n ? L(`${y} опыта`, `${y} tajriba`) : L('опыт меньше года', 'tajriba 1 yildan kam');
+  return n ? L(`${y} в теннисе`, `${y} tennisda`) : L('недавно в теннисе', 'tennisda yangi');
+}
+// Where the app is running: installed on the home screen, inside Telegram, or a normal browser
+export function appContext() {
+  const ua = navigator.userAgent || '';
+  const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const android = /Android/.test(ua);
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+  const telegram = !!(window.TelegramWebviewProxy || window.Telegram?.WebView) || /Telegram/i.test(ua);
+  return { ios, android, mobile: ios || android, standalone, telegram };
+}
+// Card: "open in Safari" / "add to home screen" — so the app opens like a normal app, not inside a browser
+export function installHint(dismissible = true) {
+  const c = appContext();
+  if (c.standalone || !c.mobile) return '';
+  try { if (dismissible && localStorage.getItem('ace_hint_off') === '1') return ''; } catch { /* ignore */ }
+  const close = dismissible ? `<button class="iconbtn light" data-hint-off aria-label="${L('Скрыть', 'Yopish')}" style="width:36px;height:36px">${icon.close}</button>` : '';
+  let body;
+  if (c.telegram) {
+    body = L(`Вы открыли Ace Tennis внутри Telegram. Нажмите <b>⋯</b> вверху справа → <b>«Открыть в ${c.ios ? 'Safari' : 'браузере'}»</b>, затем добавьте приложение на экран «Домой».`,
+      `Ace Tennis Telegram ichida ochildi. Yuqori o‘ngdagi <b>⋯</b> → <b>«${c.ios ? 'Safari' : 'Brauzer'}da ochish»</b>, so‘ng ilovani bosh ekranga qo‘shing.`);
+  } else if (c.ios) {
+    body = L('Установите как приложение: внизу Safari нажмите <b>«Поделиться» ⬆︎</b> → <b>«На экран „Домой“»</b>. Значок Ace Tennis откроет приложение без браузера.',
+      'Ilova sifatida o‘rnating: Safari pastidagi <b>«Ulashish» ⬆︎</b> → <b>«Bosh ekranga»</b>. Ace Tennis belgisi ilovani brauzersiz ochadi.');
+  } else {
+    body = L('Установите как приложение: меню браузера <b>⋮</b> → <b>«Добавить на главный экран»</b> или «Установить приложение».',
+      'Ilova sifatida o‘rnating: brauzer menyusi <b>⋮</b> → <b>«Bosh ekranga qo‘shish»</b>.');
+  }
+  return `<div class="card hl hint"><div class="row" style="align-items:flex-start"><div class="grow small">${body}</div>${close}</div></div>`;
+}
+export function bindInstallHint(root) {
+  root.querySelector('[data-hint-off]')?.addEventListener('click', (e) => {
+    try { localStorage.setItem('ace_hint_off', '1'); } catch { /* ignore */ }
+    e.currentTarget.closest('.hint')?.remove();
+  });
+}
+
 export const fmtNum = (n) => String(n ?? 0).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 export const comma = (x) => String(x).replace('.', ',');
 

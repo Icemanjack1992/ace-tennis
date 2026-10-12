@@ -1,9 +1,10 @@
 import {
-  L, esc, icon, logo, avatar, fullName, profileDone, shortName, formBadges, fmtDate, hoursLeft, fmtNum, comma, toast, sheet, readSets, setLang, getLang,
+  L, esc, icon, logo, avatar, fullName, profileDone, fmtPhone, shortName, formBadges, fmtDate, hoursLeft, fmtNum, comma, toast, sheet, readSets, setLang, getLang,
+  yearsText, appContext, installHint, bindInstallHint, normPhone,
 } from './ui.js';
 import { formatStrength, LEAGUES, fairplay, formatSets, winnerFromSets, FAIRPLAY_MIN_FOR_TOURNAMENT, seasonParts } from './rating.js';
 
-const rerender = () => window.dispatchEvent(new Event('hashchange'));
+const rerender = () => window.dispatchEvent(new Event('ace:rerender'));
 const go = (h) => (location.hash === h ? rerender() : (location.hash = h));
 // 'Осенний сезон 26'
 export const seasonLabel = (key) => { const p = seasonParts(key); return L(`${p.name.ru} сезон ${p.yy}`, `${p.name.uz} mavsum ${p.yy}`); };
@@ -34,16 +35,31 @@ export const login = {
   render(_, store) {
     const cfg = window.ACE_CONFIG || {};
     const tg = store.mode === 'live' && cfg.telegramBot && store.telegramNonce;
-    const showSms = store.mode === 'demo' || cfg.smsLogin || !tg;
+    const mail = store.mode === 'live' && cfg.emailLogin;
+    const showSms = store.mode === 'demo' || cfg.smsLogin || (!tg && !mail);
     return `<div class="hero" style="min-height:48vh;display:flex;flex-direction:column;justify-content:flex-end;gap:14px">
       <div class="brand" style="font-size:30px">${logo(56)} Ace Tennis</div>
       <div class="sub" style="font-size:16px">${L('Сообщество любителей тенниса Намангана: рейтинг, соперники, тренеры, турниры', 'Namangan tennis havaskorlari jamoasi: reyting, raqiblar, murabbiylar, turnirlar')}</div>
     </div>
     <div class="wrap">
+      ${mail ? `<div class="card">
+        <div class="seg" id="mode"><button type="button" class="on" data-m="in">${L('Вход', 'Kirish')}</button><button type="button" data-m="up">${L('Регистрация', 'Ro‘yxatdan o‘tish')}</button></div>
+        <form id="mailForm">
+          <label class="f" for="em">${L('Электронная почта', 'Elektron pochta')}</label>
+          <input id="em" class="input" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@gmail.com" required>
+          <label class="f" for="pw">${L('Пароль', 'Parol')}</label>
+          <div style="position:relative"><input id="pw" class="input" type="password" autocomplete="current-password" minlength="6" required style="padding-right:84px">
+            <button type="button" class="linkbtn" id="pwShow" style="position:absolute;right:6px;top:6px;height:36px;padding:0 10px;border:0;background:transparent;font-weight:700;color:var(--muted);cursor:pointer">${L('Показать', 'Ko‘rsatish')}</button></div>
+          <div class="muted small mt" id="pwHint" hidden>${L('Минимум 6 символов. Запомните пароль — он нужен для входа с другого телефона.', 'Kamida 6 belgi. Parolni eslab qoling.')}</div>
+          <button class="btn ball block mt" type="submit" id="mailBtn">${L('Войти', 'Kirish')}</button>
+          <div class="muted small mt center" id="forgot">${L('Забыли пароль? Напишите администратору Ace Tennis.', 'Parolni unutdingizmi? Ace Tennis administratoriga yozing.')}</div>
+        </form>
+      </div>` : ''}
       ${tg ? `<div class="card">
         <a id="tgBtn" class="btn ball block" href="https://t.me/${esc(cfg.telegramBot)}?start=${store.telegramNonce()}" target="_blank" rel="noopener">${L('Войти через Telegram', 'Telegram orqali kirish')}</a>
-        <div class="muted mt" id="tgHint">${L('Откроется бот Ace Tennis: нажмите «Start» и «Поделиться номером», затем вернитесь сюда.', 'Ace Tennis boti ochiladi: «Start» va «Raqamni yuborish» tugmalarini bosing, so‘ng bu yerga qayting.')}</div>
+        <div class="muted mt" id="tgHint">${L('Откроется бот Ace Tennis: нажмите «Start» и «Поделиться номером». Потом вернитесь в это приложение — вход произойдёт сам.', 'Ace Tennis boti ochiladi: «Start» va «Raqamni yuborish» tugmalarini bosing. So‘ng shu ilovaga qayting — kirish o‘zi bo‘ladi.')}</div>
       </div>` : ''}
+      ${tg || mail ? installHint(false) : ''}
       <div class="card" ${showSms ? '' : 'hidden'}>
         <form id="phoneForm">
           <label class="f" for="phone">${L('Номер телефона', 'Telefon raqami')}</label>
@@ -69,7 +85,37 @@ export const login = {
     </div>`;
   },
   mount(root, _, store) {
+    const cfg = window.ACE_CONFIG || {};
     let phone = '';
+    // ---- e-mail + password ----
+    const mailForm = root.querySelector('#mailForm');
+    if (mailForm) {
+      let mode = 'in';
+      const pw = root.querySelector('#pw');
+      root.querySelectorAll('#mode button').forEach((b) => b.addEventListener('click', () => {
+        mode = b.dataset.m;
+        root.querySelectorAll('#mode button').forEach((x) => x.classList.toggle('on', x === b));
+        root.querySelector('#mailBtn').textContent = mode === 'up' ? L('Зарегистрироваться', 'Ro‘yxatdan o‘tish') : L('Войти', 'Kirish');
+        root.querySelector('#pwHint').hidden = mode !== 'up';
+        root.querySelector('#forgot').hidden = mode === 'up';
+        pw.autocomplete = mode === 'up' ? 'new-password' : 'current-password';
+      }));
+      root.querySelector('#pwShow').addEventListener('click', (e) => {
+        const show = pw.type === 'password'; pw.type = show ? 'text' : 'password';
+        e.currentTarget.textContent = show ? L('Скрыть', 'Yashirish') : L('Показать', 'Ko‘rsatish');
+      });
+      mailForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const email = root.querySelector('#em').value.trim().toLowerCase(); const password = pw.value;
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast(L('Проверьте адрес почты', 'Pochta manzilini tekshiring')); return; }
+        if (password.length < 6) { toast(L('Пароль — минимум 6 символов', 'Parol kamida 6 belgi')); return; }
+        act(root.querySelector('#mailBtn'), async () => {
+          const r = mode === 'up' ? await store.signUpEmail(email, password) : await store.signInEmail(email, password);
+          if (r.confirm) { toast(L('Мы отправили письмо — откройте его, затем войдите', 'Xat yuborildi — uni oching, so‘ng kiring')); return; }
+          go(profileDone(r.user) ? '#/home' : '#/onboarding');
+        });
+      });
+    }
     root.querySelector('#phoneForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       phone = root.querySelector('#phone').value.replace(/[^\d+]/g, '');
@@ -102,12 +148,25 @@ export const login = {
           }
         } catch (e) { hint.textContent = e.message; }
       };
+      // Coming back from Telegram: check at once instead of waiting for the next tick
       const onVis = () => { if (document.visibilityState === 'visible' && timer) check(); };
       const startPolling = () => {
-        hint.textContent = L('Ждём подтверждения в Telegram…', 'Telegram’da tasdiq kutilmoqda…');
-        if (!timer) { timer = setInterval(check, 2500); document.addEventListener('visibilitychange', onVis); }
+        hint.textContent = L('Ждём подтверждения в Telegram… Поделитесь номером в боте и вернитесь сюда.', 'Telegram’da tasdiq kutilmoqda… Botda raqamni yuboring va bu yerga qayting.');
+        if (!timer) {
+          timer = setInterval(check, 2500);
+          document.addEventListener('visibilitychange', onVis); window.addEventListener('focus', onVis); window.addEventListener('pageshow', onVis);
+        }
       };
-      tgBtn.addEventListener('click', startPolling);
+      tgBtn.addEventListener('click', (e) => {
+        store.telegramClicked?.(); startPolling();
+        // On phones open the Telegram app directly (no extra page in the browser)
+        if (appContext().mobile) {
+          e.preventDefault();
+          const web = tgBtn.href;
+          location.href = `tg://resolve?domain=${encodeURIComponent(cfg.telegramBot)}&start=${store.telegramNonce()}`;
+          setTimeout(() => { if (document.visibilityState === 'visible') window.open(web, '_blank') || (location.href = web); }, 1500);
+        }
+      });
       if (store.telegramPending?.()) startPolling(); // came back after the page reloaded
     }
     root.querySelectorAll('[data-as]').forEach((b) => b.addEventListener('click', async () => {
@@ -134,6 +193,9 @@ export const onboarding = {
           <div><label class="f" for="fn">${L('Имя', 'Ism')}*</label><input id="fn" class="input" required value="${esc(u.firstName)}"></div>
           <div><label class="f" for="ln">${L('Фамилия', 'Familiya')}*</label><input id="ln" class="input" required value="${esc(u.lastName)}"></div>
         </div>
+        <label class="f" for="ph">${L('Номер телефона', 'Telefon raqami')}</label>
+        <input id="ph" class="input" type="tel" inputmode="tel" autocomplete="tel" required placeholder="+998 90 123 45 67" value="${esc(u.phone ? fmtPhone(u.phone) : '+998 ')}" aria-describedby="phHint">
+        <div class="muted small" id="phHint" style="margin-top:6px">${L('Другие игроки его не видят. Вы сами решаете, кому показать номер, — при вызове на матч.', 'Boshqalar uni ko‘rmaydi. Raqamni kimga ko‘rsatishni o‘yinga chaqiruvda o‘zingiz hal qilasiz.')}</div>
         <div class="grid2">
           <div><label class="f" for="g">${L('Пол', 'Jinsi')}*</label><select id="g" class="input" required><option value="">—</option>${opt([['м', 'Мужской', 'Erkak'], ['ж', 'Женский', 'Ayol']], u.gender)}</select></div>
           <div><label class="f" for="by">${L('Год рождения', 'Tug‘ilgan yil')}*</label><input id="by" class="input" type="number" inputmode="numeric" min="1940" max="2020" required value="${esc(u.birthYear || '')}"></div>
@@ -171,8 +233,11 @@ export const onboarding = {
       const availability = [...root.querySelectorAll('#times .chip.on')].map((c) => c.dataset.v);
       if (!availability.length) { toast(L('Выберите удобное время', 'Qulay vaqtni tanlang')); return; }
       if (!photo) { toast(L('Добавьте фото', 'Rasm qo‘shing')); return; }
+      const phone = normPhone(v('ph'));
+      if (!phone) { toast(L('Введите номер в формате +998 90 123 45 67', 'Raqamni +998 90 123 45 67 shaklida kiriting')); root.querySelector('#ph').focus(); return; }
       const me = store.me();
       const patch = { firstName: v('fn'), lastName: v('ln'), gender: v('g'), birthYear: +v('by'), district: v('d'), years: +v('y'), hand: v('h'), availability, photo };
+      if (phone !== normPhone(me.phone)) patch.phone = phone;
       if (me.role !== 'coach') patch.selfLevel = v('lv');
       else patch.coach = { ...(me.coach || {}), price: +v('pr'), specialization: v('sp').split(',').map((s) => s.trim()).filter(Boolean), worksWith: v('ww'), experience: +v('y') };
       const wasNew = !profileDone(me);
@@ -284,15 +349,22 @@ export const home = {
   async render(_, store) {
     const me = store.me();
     if (me.role === 'admin') { setTimeout(() => go('#/admin'), 0); return ''; }
-    const [rank, out, chs, sugg, tours] = await Promise.all([
+    const [rank, out, chs, sugg, tours, phones] = await Promise.all([
       store.ranking({ league: me.league, period: 'quarter' }), store.outgoing(), store.challenges(), store.suggestOpponent(), store.tournaments(),
+      store.contacts ? store.contacts().catch(() => ({})) : {},
     ]);
+    // Opponent's number (only if he chose to share it) or a "share mine" button
+    const call = (c) => phones[c.id]
+      ? `<a class="btn ghost sm" href="tel:+${esc(String(phones[c.id]).replace(/\D/g, ''))}" style="width:100%;margin-top:8px">📞 ${esc(fmtPhone(String(phones[c.id]).replace(/\D/g, '')))}</a>` : '';
+    const iShared = (c) => (c.fromId === me.id ? c.shareFrom : c.shareTo);
     const place = rank.find((u) => u.id === me.id)?.place;
     const incoming = chs.filter((c) => c.toId === me.id && c.status === 'sent');
     const upcoming = chs.filter((c) => c.status === 'accepted' && new Date(c.at) > new Date(Date.now() - 3 * 3600e3));
     const myTour = tours.find((t) => t.status === 'running' && t.entries.some((e) => e.userId === me.id));
     const isCoach = me.role === 'coach';
+    const sent = chs.filter((c) => c.fromId === me.id && (c.status === 'sent' || (c.status === 'declined' && new Date(c.at) > new Date(Date.now() - 3 * 864e5))));
     const outCards = [
+      ...sent.map((c) => `<div class="row between"><div class="grow"><div class="strong ellipsis">${c.format === 'question' ? L('Вопрос', 'Savol') : L('Вызов', 'Chaqiruv')} · ${esc(shortName(store.user(c.toId)))}</div><div class="muted">${c.format === 'question' ? '' : fmtDate(c.at, true) + ' · '}${c.status === 'declined' ? L('отказ(ала)ся', 'rad etdi') : c.format === 'question' ? L('отправлен', 'yuborildi') : L('ждёт ответа', 'javob kutilmoqda')}</div></div>${c.status === 'declined' ? `<span class="tag bad">${L('Отказ', 'Rad')}</span>` : `<span class="tag soft">${L('Отправлен', 'Yuborildi')}</span>`}</div>`),
       ...out.matches.map((m) => m.status === 'pending'
         ? `<div class="row between"><div class="grow"><div class="strong ellipsis">${esc(sideLabel(m, store, m.teamA.includes(me.id) ? 'B' : 'A'))} · ${scoreFor(m, me.id)}</div><div class="muted">${L('ждёт подтверждения соперника', 'raqib tasdig‘ini kutmoqda')} · ${hoursLeft(m.deadline)} ${L('ч', 'soat')}</div></div><button class="btn ghost sm" data-cancel="match:${m.id}">${L('Отменить', 'Bekor')}</button></div>`
         : `<div class="row between"><div class="grow"><div class="strong ellipsis">${esc(sideLabel(m, store, m.teamA.includes(me.id) ? 'B' : 'A'))}</div><div class="muted">${L('не подтвердил(а) за 48 ч — запись отменена', '48 soatda tasdiqlamadi — yozuv bekor qilindi')}</div></div><button class="btn danger sm" data-complain="${m.id}">${L('Жалоба', 'Shikoyat')}</button></div>`),
@@ -311,10 +383,13 @@ export const home = {
       ${banned(me) ? `<div class="tag bad mt">${L('Аккаунт ограничен до', 'Akkaunt cheklangan')}: ${fmtDate(me.bannedUntil)}</div>` : ''}
     </div>
     <div class="wrap">
+      ${installHint()}
       ${incoming.map((c) => `<div class="card hl"><span class="tag warn">${c.format === 'question' ? L('Вопрос', 'Savol') : L('Вызов на матч', 'O‘yinga chaqiruv')}</span>
         <div class="row mt">${avatar(store.user(c.fromId))}<div class="grow"><div class="strong">${esc(fullName(store.user(c.fromId)))}</div><div class="muted">${c.format === 'question' ? '' : fmtDate(c.at, true) + ' · '}${esc(c.note || '')}</div></div></div>
+        ${call(c)}
         ${c.format === 'question' ? `<div class="grid2 mt"><button class="btn sm" data-ans="${c.id}:accepted">${L('Прочитано', 'O‘qildi')}</button></div>` :
-        `<div class="grid2 mt"><button class="btn sm" data-ans="${c.id}:accepted">${L('Принять', 'Qabul qilish')}</button><button class="btn ghost sm" data-ans="${c.id}:declined">${L('Отказать', 'Rad etish')}</button></div>`}</div>`).join('')}
+        `<label class="row mt small strong" style="gap:8px;cursor:pointer"><input type="checkbox" data-share-ans="${c.id}" checked style="width:20px;height:20px;accent-color:var(--court)">${L('Показать мой номер сопернику', 'Raqamimni raqibga ko‘rsatish')}</label>
+        <div class="grid2 mt"><button class="btn sm" data-ans="${c.id}:accepted">${L('Принять', 'Qabul qilish')}</button><button class="btn ghost sm" data-ans="${c.id}:declined">${L('Отказать', 'Rad etish')}</button></div>`}</div>`).join('')}
       ${outCards ? `<div class="card"><h2 class="h">${L('Мои записи', 'Mening yozuvlarim')}</h2><div class="list">${outCards}</div></div>` : ''}
       <div class="grid2">
         <a href="#/tournaments" class="card dark" style="text-decoration:none;display:flex;flex-direction:column;gap:6px">${icon.trophy.replace('currentColor', '#D8F244')}<span class="num" style="font-size:18px;text-transform:uppercase">${L('Турниры', 'Turnirlar')}</span><span class="sub small">${myTour ? L('Вы участвуете', 'Siz ishtirokchisiz') : L('Заявки и сетки', 'Arizalar va to‘rlar')}</span></a>
@@ -324,14 +399,22 @@ export const home = {
         <a href="#/profile/${sugg.id}" class="row" style="text-decoration:none;color:inherit">${avatar(sugg)}<div class="grow"><div class="strong">${esc(fullName(sugg))}</div><div class="muted">${L('УС', 'KD')} ${formatStrength(sugg.rating)} · ${leagueName(sugg.league)} · ${esc(sugg.availability.join(', '))}</div></div></a>
         <div class="row between mt">${formBadges(sugg.form)}<button class="btn ball sm" data-challenge="${sugg.id}">${L('Вызвать на матч', 'O‘yinga chaqirish')}</button></div></div>` : ''}
       <div class="card"><h2 class="h">${L('Ближайшие игры', 'Yaqin o‘yinlar')}</h2>
-        ${upcoming.length ? `<div class="list">${upcoming.map((c) => { const o = store.user(c.fromId === me.id ? c.toId : c.fromId); const d = new Date(c.at); return `<div class="row"><div style="width:44px;text-align:center"><div class="num" style="font-size:22px;line-height:1">${d.getDate()}</div><div class="muted small strong">${fmtDate(c.at).split(' ')[1].toUpperCase()}</div></div><div class="grow"><div class="strong">${L('Матч с', 'O‘yin:')} ${esc(shortName(o))}</div><div class="muted">${fmtDate(c.at, true).split(', ')[1]} · ${c.format === 'double' ? L('парный', 'juftlik') : L('одиночный', 'yakka')}</div></div><span class="tag ok">${L('Договорились', 'Kelishildi')}</span></div>`; }).join('')}</div>`
+        ${upcoming.length ? `<div class="list">${upcoming.map((c) => { const o = store.user(c.fromId === me.id ? c.toId : c.fromId); const d = new Date(c.at); return `<div><div class="row"><div style="width:44px;text-align:center"><div class="num" style="font-size:22px;line-height:1">${d.getDate()}</div><div class="muted small strong">${fmtDate(c.at).split(' ')[1].toUpperCase()}</div></div><div class="grow"><div class="strong">${L('Матч с', 'O‘yin:')} ${esc(shortName(o))}</div><div class="muted">${fmtDate(c.at, true).split(', ')[1]} · ${c.format === 'double' ? L('парный', 'juftlik') : L('одиночный', 'yakka')}</div></div><span class="tag ok">${L('Договорились', 'Kelishildi')}</span></div>
+          ${call(c) || `<div class="muted small" style="margin:4px 0 0 56px">${L('Соперник пока не открыл номер', 'Raqib hali raqamini ochmadi')}</div>`}
+          ${iShared(c) ? '' : `<button class="btn ghost sm" data-share="${c.id}" style="width:100%;margin-top:8px">${L('Поделиться моим номером', 'Raqamimni ulashish')}</button>`}</div>`; }).join('')}</div>`
         : `<div class="empty">${L('Пока нет запланированных игр. Найдите соперника в поиске.', 'Rejalashtirilgan o‘yin yo‘q. Qidiruvdan raqib toping.')}</div>`}
       </div>
     </div>`;
   },
   mount(root, _, store) {
+    bindInstallHint(root);
     root.querySelectorAll('[data-ans]').forEach((b) => b.addEventListener('click', () => act(b, async () => {
-      const [id, st] = b.dataset.ans.split(':'); await store.answerChallenge(id, st); rerender();
+      const [id, st] = b.dataset.ans.split(':');
+      const share = !!root.querySelector(`[data-share-ans="${id}"]`)?.checked;
+      await store.answerChallenge(id, st, share); rerender();
+    })));
+    root.querySelectorAll('[data-share]').forEach((b) => b.addEventListener('click', () => act(b, async () => {
+      await store.sharePhone(b.dataset.share); toast(L('Сопернику открыт ваш номер', 'Raqamingiz raqibga ochildi')); rerender();
     })));
     root.querySelectorAll('[data-cancel]').forEach((b) => b.addEventListener('click', () => act(b, async () => {
       const [k, id] = b.dataset.cancel.split(':'); await store.cancelOwn(k, id); toast(L('Запись отменена', 'Yozuv bekor qilindi')); rerender();
@@ -354,17 +437,20 @@ export function challengeSheet(store, toId, question = false) {
     <label class="f">${L('Формат', 'Format')}</label><div class="seg" id="fmt"><button class="on" data-v="single">${L('Одиночный', 'Yakka')}</button><button data-v="double">${L('Парный', 'Juftlik')}</button></div>`}
     <label class="f" for="note">${question ? L('Ваш вопрос', 'Savolingiz') : L('Комментарий (корт, район)', 'Izoh (kort, tuman)')}</label>
     <textarea class="input" id="note"></textarea>
+    <label class="row mt small strong" style="gap:8px;cursor:pointer"><input type="checkbox" id="share" checked style="width:20px;height:20px;accent-color:var(--court)">${question ? L('Показать мой номер тренеру', 'Raqamimni murabbiyga ko‘rsatish') : L('Показать мой номер сопернику', 'Raqamimni raqibga ko‘rsatish')}</label>
     <div class="grid2 mt"><button class="btn ghost" data-close>${L('Отмена', 'Bekor')}</button><button class="btn ball" id="send">${L('Отправить', 'Yuborish')}</button></div>`,
   (el, close) => {
     el.querySelectorAll('#fmt button').forEach((b) => b.addEventListener('click', () => { el.querySelectorAll('#fmt button').forEach((x) => x.classList.remove('on')); b.classList.add('on'); }));
-    el.querySelector('#send').addEventListener('click', async () => {
+    const send = el.querySelector('#send');
+    send.addEventListener('click', () => act(send, async () => {
       if (banned(store.me())) { toast(L('Аккаунт временно ограничен', 'Akkaunt vaqtincha cheklangan')); return; }
       const note = el.querySelector('#note').value.trim();
       if (question && !note) { toast(L('Напишите вопрос', 'Savol yozing')); return; }
       await store.createChallenge({ toId, at: question ? new Date().toISOString() : new Date(el.querySelector('#at').value).toISOString(),
-        format: question ? 'question' : el.querySelector('#fmt .on').dataset.v, note });
-      close(); toast(question ? L('Вопрос отправлен', 'Savol yuborildi') : L('Вызов отправлен', 'Chaqiruv yuborildi'));
-    });
+        format: question ? 'question' : el.querySelector('#fmt .on').dataset.v, note, share: el.querySelector('#share').checked });
+      close(); toast(question ? L('Вопрос отправлен', 'Savol yuborildi') : L('Вызов отправлен — соперник увидит его на главной', 'Chaqiruv yuborildi — raqib uni bosh sahifada ko‘radi'));
+      if (location.hash === '#/home') rerender();
+    }));
   });
 }
 
@@ -537,7 +623,7 @@ export const profile = {
       <div class="topbar">${own ? `<span></span>` : back('#/rating')}
         ${own ? `<a class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" href="#/edit">${L('Редактировать', 'Tahrirlash')}</a>` : `<button class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" data-complain>${L('Пожаловаться', 'Shikoyat')}</button>`}</div>
       <div class="row mt" style="gap:16px">${avatar(u, 'lg')}<div class="grow"><h1 class="title" style="font-size:26px;text-transform:none">${esc(fullName(u))}</h1>
-        <div class="sub">${isCoach ? L('Тренер', 'Murabbiy') : L('Любитель', 'Havaskor')} · ${u.years || 0} ${L('лет в теннисе', 'yil tennisda')}</div>
+        <div class="sub">${isCoach ? L('Тренер', 'Murabbiy') : L('Любитель', 'Havaskor')} · ${isCoach ? yearsText(u.coach?.experience || u.years, 'exp') : yearsText(u.years)}</div>
         <div class="sub">${esc([u.hand, u.district].filter(Boolean).join(' · '))}</div></div></div>
       <div class="grid3 mt">
         <div class="stat"><div class="num" style="color:var(--ball)">${formatStrength(u.rating)}</div><div class="sub small">${L('уровень силы', 'kuch darajasi')}</div></div>
@@ -638,34 +724,43 @@ export const search = {
     const chip = (key, val, label) => `<button class="chip ${sState[key] === val ? 'on' : ''}" data-f="${key}" data-v="${val}">${label}</button>`;
     const tabs = `<div class="seg"><button class="${sState.tab === 'players' ? 'on' : ''}" data-tab="players">${L('Соперники', 'Raqiblar')}</button><button class="${sState.tab === 'coaches' ? 'on' : ''}" data-tab="coaches">${L('Тренеры', 'Murabbiylar')}</button></div>`;
     const qbox = `<input class="input" id="q" placeholder="${L('Поиск по имени', 'Ism bo‘yicha qidirish')}" value="${esc(sState.q)}" aria-label="${L('Поиск по имени', 'Ism bo‘yicha qidirish')}">`;
-    const textMatch = (u) => !sState.q || fullName(u).toLowerCase().includes(sState.q.toLowerCase());
     if (sState.tab === 'coaches') {
-      const cs = (await store.coachRanking()).filter(textMatch);
+      const cs = await store.coachRanking();
       return `<div class="pagehead"><h1 class="title">${L('Поиск', 'Qidiruv')}</h1></div><div class="wrap">${tabs}${qbox}
-        ${cs.map((c) => `<a href="#/coach/${c.id}" class="card" style="text-decoration:none;color:inherit"><div class="row">${avatar(c)}<div class="grow"><div class="strong">${esc(fullName(c))} ${c.coach?.verified ? `<span class="tag ok">${L('подтверждён', 'tasdiqlangan')}</span>` : ''}</div><div class="muted">${c.coach?.experience || c.years || 0} ${L('лет опыта', 'yil tajriba')} · ${esc((c.coach?.specialization || []).join(', '))}</div></div></div>
-          <div class="row between mt"><span><span class="stars">★</span> <b>${c.stats.avg ? comma(c.stats.avg) : '—'}</b> <span class="muted">· ${c.stats.students} ${L('учеников', 'shogird')} · ${c.stats.trainings} ${L('занятий', 'mashg‘ulot')}</span></span><span class="strong">${c.coach?.price ? fmtNum(c.coach.price) + ' ' + L('сум/ч', 'so‘m/soat') : ''}</span></div></a>`).join('') || `<div class="empty">${L('Тренеры не найдены', 'Murabbiy topilmadi')}</div>`}
+        ${cs.map((c) => `<a href="#/coach/${c.id}" class="card" data-name="${esc(fullName(c).toLowerCase())}" style="text-decoration:none;color:inherit"><div class="row">${avatar(c)}<div class="grow"><div class="strong">${esc(fullName(c))} ${c.coach?.verified ? `<span class="tag ok">${L('подтверждён', 'tasdiqlangan')}</span>` : ''}</div><div class="muted">${yearsText(c.coach?.experience || c.years, 'exp')}${c.coach?.specialization?.length ? ' · ' + esc(c.coach.specialization.join(', ')) : ''}</div></div></div>
+          <div class="row between mt"><span><span class="stars">★</span> <b>${c.stats.avg ? comma(c.stats.avg) : '—'}</b> <span class="muted">· ${c.stats.students} ${L('учеников', 'shogird')} · ${c.stats.trainings} ${L('занятий', 'mashg‘ulot')}</span></span><span class="strong">${c.coach?.price ? fmtNum(c.coach.price) + ' ' + L('сум/ч', 'so‘m/soat') : ''}</span></div></a>`).join('') }
+        <div class="empty" data-none ${cs.length ? 'hidden' : ''}>${L('Тренеры не найдены', 'Murabbiy topilmadi')}</div>
       </div>`;
     }
     const all = (await store.listUsers({ role: 'player' })).filter((u) => u.id !== me.id);
-    const list = all.filter((u) => textMatch(u) && (sState.league === 'all' || u.league === sState.league) && (sState.gender === 'all' || u.gender === sState.gender)
+    const list = all.filter((u) => (sState.league === 'all' || u.league === sState.league) && (sState.gender === 'all' || u.gender === sState.gender)
       && (sState.time === 'all' || u.availability.includes(sState.time)) && (sState.district === 'all' || u.district === sState.district))
       .sort((a, b) => Math.abs(a.rating - me.rating) - Math.abs(b.rating - me.rating));
     return `<div class="pagehead"><h1 class="title">${L('Поиск', 'Qidiruv')}</h1></div><div class="wrap">${tabs}${qbox}
       <div class="chips scroll">${chip('league', 'all', L('Все лиги', 'Barcha ligalar'))}${LEAGUES.map((l) => chip('league', l.id, L(l.ru, l.uz))).join('')}</div>
       <div class="chips scroll">${chip('time', 'all', L('Любое время', 'Istalgan vaqt'))}${TIMES.map(([v, ru, uz]) => chip('time', v, L(ru, uz))).join('')}</div>
       <div class="chips scroll">${chip('gender', 'all', L('Все', 'Barchasi'))}${chip('gender', 'м', L('Мужчины', 'Erkaklar'))}${chip('gender', 'ж', L('Женщины', 'Ayollar'))}${chip('district', 'all', L('Все районы', 'Barcha tumanlar'))}${DISTRICTS.map((d) => chip('district', d, d)).join('')}</div>
-      <div class="muted">${L('Ближе всего к вашему уровню', 'Darajangizga eng yaqin')} · ${list.length}</div>
-      ${list.map((u) => `<article class="card"><a href="#/profile/${u.id}" class="row" style="text-decoration:none;color:inherit">${avatar(u)}<div class="grow"><div class="strong">${esc(fullName(u))}</div><div class="muted">${u.years} ${L('лет', 'yil')} · ${esc(u.district)} · ${esc(u.availability.join(', '))}</div></div>
+      <div class="muted">${L('Ближе всего к вашему уровню', 'Darajangizga eng yaqin')} · <span data-count>${list.length}</span></div>
+      ${list.map((u) => `<article class="card" data-name="${esc(fullName(u).toLowerCase())}"><a href="#/profile/${u.id}" class="row" style="text-decoration:none;color:inherit">${avatar(u)}<div class="grow"><div class="strong">${esc(fullName(u))}</div><div class="muted">${yearsText(u.years)} · ${esc(u.district || '')}${u.availability.length ? ' · ' + esc(u.availability.join(', ')) : ''}</div></div>
         <div style="text-align:right"><div class="num" style="font-size:22px;line-height:1">${formatStrength(u.rating)}</div><div class="muted small strong">${leagueName(u.league).toUpperCase()}</div></div></a>
-        <div class="row between mt">${formBadges(u.form)}<button class="btn ball sm" data-challenge="${u.id}">${L('Вызвать', 'Chaqirish')}</button></div></article>`).join('') || `<div class="empty">${L('Никого не нашли — попробуйте снять фильтры', 'Hech kim topilmadi — filtrlarni olib tashlang')}</div>`}
+        <div class="row between mt">${formBadges(u.form)}<button class="btn ball sm" data-challenge="${u.id}">${L('Вызвать', 'Chaqirish')}</button></div></article>`).join('') }
+      <div class="empty" data-none ${list.length ? 'hidden' : ''}>${L('Никого не нашли — попробуйте снять фильтры', 'Hech kim topilmadi — filtrlarni olib tashlang')}</div>
     </div>`;
   },
   mount(root, _, store) {
     root.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => { sState.tab = b.dataset.tab; rerender(); }));
     root.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => { sState[b.dataset.f] = b.dataset.v; rerender(); }));
     root.querySelectorAll('[data-challenge]').forEach((b) => b.addEventListener('click', () => challengeSheet(store, b.dataset.challenge)));
-    const q = root.querySelector('#q'); let tm;
-    q.addEventListener('input', () => { clearTimeout(tm); tm = setTimeout(() => { sState.q = q.value; rerender(); setTimeout(() => { const n = document.querySelector('#q'); n?.focus(); n?.setSelectionRange(n.value.length, n.value.length); }, 30); }, 350); });
+    // Name search filters the cards in place: no reload, the keyboard stays open
+    const q = root.querySelector('#q');
+    const filter = () => {
+      sState.q = q.value; const needle = q.value.trim().toLowerCase(); let n = 0;
+      root.querySelectorAll('[data-name]').forEach((c) => { const ok = !needle || c.dataset.name.includes(needle); c.hidden = !ok; if (ok) n++; });
+      const cnt = root.querySelector('[data-count]'); if (cnt) cnt.textContent = n;
+      const none = root.querySelector('[data-none]'); if (none) none.hidden = n > 0;
+    };
+    q.addEventListener('input', filter);
+    if (sState.q) filter();
   },
 };
 
@@ -682,7 +777,7 @@ export const coach = {
     return `<div class="hero">
       <div class="topbar">${back('#/search')}<span class="tag ball">${icon.check.replace('width="24" height="24"', 'width="14" height="14"')} ${L('Тренер подтверждён', 'Murabbiy tasdiqlangan')}</span></div>
       <div class="row mt" style="gap:16px">${avatar(c, 'lg')}<div><h1 class="title" style="font-size:26px;text-transform:none">${esc(fullName(c))}</h1>
-        <div class="sub">${cc.experience || c.years || 0} ${L('лет опыта', 'yil tajriba')}</div>
+        <div class="sub">${yearsText(cc.experience || c.years, 'exp')}</div>
         <div class="row" style="gap:6px;margin-top:4px"><span class="stars">${'★'.repeat(Math.round(st.avg || 0))}</span><b>${st.avg ? comma(st.avg) : '—'}</b><span class="sub small">· ${st.reviews.length} ${L('отзывов', 'fikr')}</span></div></div></div>
       <div class="grid3 mt">
         <div class="stat"><div class="num" style="color:var(--ball)">${st.students}</div><div class="sub small">${L('учеников', 'shogird')}</div></div>
