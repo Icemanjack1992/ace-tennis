@@ -12,9 +12,16 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://tldygntpphyfigxoinvl.supabase.co" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm" crossorigin>
+  <link rel="modulepreload" href="js/views.js">
+  <link rel="modulepreload" href="js/ui.js">
+  <link rel="modulepreload" href="js/store-supabase.js">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap">
+  <!-- Fonts load without holding up the first screen -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="css/app.css">
   <script src="js/config.js"></script>
   <script type="module" src="js/app.js"></script>
@@ -25,6 +32,7 @@
       <img src="icons/icon-192.png" width="96" height="96" alt="Ace Tennis">
     </div>
   </main>
+  <div class="rotate" role="alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>Поверните телефон вертикально<br><span style="font-weight:500;opacity:.8">Telefonni tik holatga keltiring</span></div>
   <noscript>Для работы Ace Tennis включите JavaScript.</noscript>
 </body>
 </html>
