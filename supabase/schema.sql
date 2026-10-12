@@ -30,7 +30,7 @@ create table if not exists public.profiles (
   league text not null default 'novice',
   points_q int not null default 0,
   points_y int not null default 0,
-  q_key text not null default to_char(now(),'YYYY') || '-Q' || to_char(now(),'Q'),
+  q_key text not null default '',  -- season key, e.g. 2026-autumn (filled on the first match)
   y_key text not null default to_char(now(),'YYYY'),
   fp_sum numeric not null default 0,
   fp_count int not null default 0,
@@ -228,8 +228,26 @@ begin
   return case when a > b then 'A' else 'B' end;
 end $$;
 
-create or replace function public.current_q() returns text language sql stable as
-$$ select to_char(now(),'YYYY') || '-Q' || to_char(now(),'Q') $$;
+-- Seasons: spring Mar–May, summer Jun–Aug, autumn Sep–Nov, winter Dec–Feb (named by the year it starts)
+create or replace function public.current_q() returns text language sql stable as $$
+  select case
+    when extract(month from now() at time zone 'Asia/Tashkent') between 3 and 5 then to_char(now() at time zone 'Asia/Tashkent','YYYY') || '-spring'
+    when extract(month from now() at time zone 'Asia/Tashkent') between 6 and 8 then to_char(now() at time zone 'Asia/Tashkent','YYYY') || '-summer'
+    when extract(month from now() at time zone 'Asia/Tashkent') between 9 and 11 then to_char(now() at time zone 'Asia/Tashkent','YYYY') || '-autumn'
+    when extract(month from now() at time zone 'Asia/Tashkent') = 12 then to_char(now() at time zone 'Asia/Tashkent','YYYY') || '-winter'
+    else (extract(year from now() at time zone 'Asia/Tashkent')::int - 1)::text || '-winter' end
+$$;
+
+create or replace function public.league_label(p_league text) returns text language sql immutable as $$
+  select case p_league when 'novice' then 'Новички' when 'bronze' then 'Бронза' when 'silver' then 'Серебро'
+    when 'gold' then 'Золото' when 'masters' then 'Мастерс' else p_league end
+$$;
+
+-- '2026-autumn' → 'Осенний 26'
+create or replace function public.season_label(p_key text) returns text language sql immutable as $$
+  select case split_part(p_key, '-', 2) when 'spring' then 'Весенний' when 'summer' then 'Летний'
+    when 'autumn' then 'Осенний' when 'winter' then 'Зимний' else p_key end || ' ' || right(split_part(p_key, '-', 1), 2)
+$$;
 create or replace function public.current_y() returns text language sql stable as
 $$ select to_char(now(),'YYYY') $$;
 
@@ -567,14 +585,14 @@ begin
       from profiles where matches > 0 and role <> 'admin') t
    where p.id = t.id and t.rk = 1;
 
-  if exists (select 1 from profiles where q_key <> current_q() and matches > 0) then
+  if exists (select 1 from profiles where q_key <> current_q() and q_key <> '' and matches > 0) then
     for r in
       select id, league, q_key, rank() over (partition by league order by points_q desc, rating desc) rk
-        from profiles where matches > 0 and role <> 'admin' and q_key <> current_q() and points_q > 0
+        from profiles where matches > 0 and role <> 'admin' and q_key <> current_q() and q_key <> '' and points_q > 0
     loop
-      if r.rk = 1 then perform grant_achievement(r.id, 'q_champion', 'Чемпион квартала', r.q_key || ' · ' || r.league);
-      elsif r.rk <= 3 then perform grant_achievement(r.id, 'q_top3', 'Топ-3 квартала', r.q_key || ' · ' || r.league);
-      elsif r.rk <= 10 then perform grant_achievement(r.id, 'q_top10', 'Топ-10 квартала', r.q_key || ' · ' || r.league);
+      if r.rk = 1 then perform grant_achievement(r.id, 'q_champion', 'Чемпион сезона', season_label(r.q_key) || ' · ' || league_label(r.league));
+      elsif r.rk <= 3 then perform grant_achievement(r.id, 'q_top3', 'Топ-3 сезона', season_label(r.q_key) || ' · ' || league_label(r.league));
+      elsif r.rk <= 10 then perform grant_achievement(r.id, 'q_top10', 'Топ-10 сезона', season_label(r.q_key) || ' · ' || league_label(r.league));
       end if;
     end loop;
     update profiles set

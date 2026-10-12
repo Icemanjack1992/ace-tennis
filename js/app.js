@@ -1,6 +1,6 @@
 import { DemoStore } from './store-demo.js';
 import { SupabaseStore } from './store-supabase.js';
-import { L, icon, setLang, getLang, toast } from './ui.js';
+import { L, icon, setLang, getLang, toast, profileDone } from './ui.js';
 import * as V from './views.js';
 
 const cfg = window.ACE_CONFIG || {};
@@ -46,7 +46,7 @@ export async function render() {
   const [, view, opts] = route;
   const me = store.me();
   if (!opts.open && !me) { location.hash = '#/login'; return; }
-  if (me && !me.firstName && hash !== '#/onboarding') { location.hash = '#/onboarding'; return; }
+  if (me && !profileDone(me) && hash !== '#/onboarding') { location.hash = '#/onboarding'; return; }
   if (opts.admin && me?.role !== 'admin') { location.hash = '#/home'; return; }
   // Gate: anything waiting for my confirmation must be handled first
   if (me && !opts.open && !opts.gateFree) {

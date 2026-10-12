@@ -43,7 +43,7 @@ function seed() {
   ];
   for (const [f, l, g, exp, spec, ww] of coaches) {
     db.users.push(newPlayer({
-      role: 'coach', firstName: f, lastName: l, gender: g, years: exp, district: 'Центр', phone: '',
+      role: 'coach', firstName: f, lastName: l, gender: g, years: exp, district: 'Центр', phone: '', availability: ['утро', 'вечер'],
       coach: { verified: true, price: null, specialization: spec.split(';'), worksWith: ww, experience: exp },
       createdAt: addHours(nowIso(), -24 * 150),
     }));
@@ -125,7 +125,7 @@ function seed() {
 
   db.news.push(
     { id: uid(), title: 'Открыта заявка на «Зимний кубок»', body: 'Турнир для лиги Бронза: 8 игроков, 3 матча у каждого, около 10 дней. Подайте заявку в разделе «Турниры».', section: 'tournaments', photos: [], createdAt: addHours(nowIso(), -24 * 2), comments: [] },
-    { id: uid(), title: 'Стартовал 4 квартал', body: 'Очки квартала обнулены, лиги пересчитаны по уровню силы. Удачи в новом сезоне!', section: 'season', photos: [], createdAt: addHours(nowIso(), -24 * 11), comments: [{ id: uid(), userId: ulug.id, text: 'Отлично, ждём турниров!', createdAt: addHours(nowIso(), -24 * 10) }] },
+    { id: uid(), title: 'Стартовал Осенний сезон 26', body: 'Очки сезона обнулены, лиги пересчитаны по уровню силы. Осенний сезон идёт до конца ноября — удачи!', section: 'season', photos: [], createdAt: new Date(new Date().getFullYear(), 8, 1, 10).toISOString(), comments: [{ id: uid(), userId: ulug.id, text: 'Отлично, ждём турниров!', createdAt: addHours(nowIso(), -24 * 10) }] },
     { id: uid(), title: 'В приложении 3 тренера', body: 'Дильшод Каримов, Рустам Ахмедов и Малика Турсунова подтверждены администратором. Записывайтесь на тренировки!', section: 'community', photos: [], createdAt: addHours(nowIso(), -24 * 20), comments: [] },
   );
   // Days-in-top badges for the demo

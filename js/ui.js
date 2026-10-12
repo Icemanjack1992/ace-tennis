@@ -27,6 +27,9 @@ export const icon = {
 
 export const logo = (size = 32) => `<svg role="img" aria-label="Ace Tennis" width="${size}" height="${size}" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#D8F244"/><path d="M31 75 50 24l19 51" fill="none" stroke="#0E3B2C" stroke-width="${size < 36 ? 10 : 8}" stroke-linecap="round" stroke-linejoin="round"/><path d="M37 57q13 7 26 0" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/></svg>`;
 
+// Required profile fields are filled (admins are exempt)
+export const profileDone = (u) => !!u && (u.role === 'admin' || !!(u.firstName && u.lastName && u.gender && u.district && u.availability?.length));
+
 export const fullName = (u) => u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() || L('Без имени', 'Ismsiz') : '—';
 export const shortName = (u) => u ? `${u.firstName || ''} ${u.lastName ? u.lastName[0] + '.' : ''}`.trim() : '—';
 

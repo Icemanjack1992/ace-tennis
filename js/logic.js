@@ -1,7 +1,7 @@
 // Business rules shared by the demo store (mirrored in supabase/schema.sql for the real server)
 import {
   applyMatch, winnerFromSets, seasonPoints, pushForm, leagueFor, leagueRank,
-  quarterKey, yearKey, CONFIRM_HOURS, START_RATING,
+  seasonKey, yearKey, CONFIRM_HOURS, START_RATING,
 } from './rating.js';
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -13,7 +13,7 @@ export function newPlayer(p) {
     id: uid(), role: 'player', firstName: '', lastName: '', photo: null, gender: '', birthYear: null,
     district: '', years: 0, selfLevel: '', hand: '', availability: [], phone: '',
     rating: START_RATING, matches: 0, wins: 0, form: '', league: 'novice',
-    pointsQ: 0, pointsY: 0, qKey: quarterKey(), yKey: yearKey(),
+    pointsQ: 0, pointsY: 0, qKey: seasonKey(), yKey: yearKey(),
     fpSum: 0, fpCount: 0, bannedUntil: null, top10Days: 0, top1Days: 0,
     coach: null, createdAt: nowIso(), ...p,
   };
@@ -95,9 +95,9 @@ function streakLen(db, userId) {
   return n;
 }
 
-// Season rollover for a single user (points reset, league recalculated each quarter)
+// Season rollover for a single user (points reset, league recalculated each season)
 export function rollSeason(u) {
-  const q = quarterKey(), y = yearKey();
+  const q = seasonKey(), y = yearKey();
   if (u.qKey !== q) { u.pointsQ = 0; u.qKey = q; if (u.matches >= 5) u.league = leagueFor(u.rating, u.matches); }
   if (u.yKey !== y) { u.pointsY = 0; u.yKey = y; }
 }

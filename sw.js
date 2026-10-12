@@ -1,5 +1,5 @@
 // Ace Tennis service worker: app shell works offline and opens instantly; data always goes to the network.
-const CACHE = 'ace-v1';
+const CACHE = 'ace-v2';
 const SHELL = [
   './', './index.html', './css/app.css', './js/config.js', './js/app.js', './js/ui.js', './js/views.js',
   './js/rating.js', './js/logic.js', './js/store-demo.js', './js/store-supabase.js', './manifest.webmanifest',

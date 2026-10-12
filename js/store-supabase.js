@@ -66,6 +66,30 @@ export class SupabaseStore {
   }
   async signOut() { await this.sb.auth.signOut(); this.meCache = null; }
 
+  // ---------- Telegram bot login ----------
+  telegramNonce() {
+    let n = null;
+    try { n = sessionStorage.getItem('ace_tg_nonce'); } catch { /* ignore */ }
+    if (!n) {
+      n = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+      try { sessionStorage.setItem('ace_tg_nonce', n); } catch { /* ignore */ }
+      this._tgNonce = n;
+    }
+    return n || this._tgNonce;
+  }
+  telegramPending() { try { return sessionStorage.getItem('ace_tg_clicked') === '1'; } catch { return false; } }
+  async telegramCheck(nonce) {
+    try { sessionStorage.setItem('ace_tg_clicked', '1'); } catch { /* ignore */ }
+    const { data, error } = await this.sb.functions.invoke('telegram-login', { body: { nonce } });
+    if (error) throw new Error(error.message);
+    const done = () => { try { sessionStorage.removeItem('ace_tg_nonce'); sessionStorage.removeItem('ace_tg_clicked'); } catch { /* ignore */ } };
+    if (data.status === 'ready') {
+      check(await this.sb.auth.verifyOtp({ token_hash: data.token_hash, type: 'email' }));
+      done(); await this.refresh();
+    } else if (data.status === 'expired' || data.status === 'used') done();
+    return data.status;
+  }
+
   // ---------- users ----------
   async saveProfile(patch) {
     check(await this.sb.from('profiles').update(fromUser(patch)).eq('id', this.uid()));

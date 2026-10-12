@@ -1,10 +1,12 @@
 import {
-  L, esc, icon, logo, avatar, fullName, shortName, formBadges, fmtDate, hoursLeft, fmtNum, comma, toast, sheet, readSets, setLang, getLang,
+  L, esc, icon, logo, avatar, fullName, profileDone, shortName, formBadges, fmtDate, hoursLeft, fmtNum, comma, toast, sheet, readSets, setLang, getLang,
 } from './ui.js';
-import { formatStrength, LEAGUES, fairplay, formatSets, winnerFromSets, FAIRPLAY_MIN_FOR_TOURNAMENT } from './rating.js';
+import { formatStrength, LEAGUES, fairplay, formatSets, winnerFromSets, FAIRPLAY_MIN_FOR_TOURNAMENT, seasonParts } from './rating.js';
 
 const rerender = () => window.dispatchEvent(new Event('hashchange'));
 const go = (h) => (location.hash === h ? rerender() : (location.hash = h));
+// 'Осенний сезон 26'
+export const seasonLabel = (key) => { const p = seasonParts(key); return L(`${p.name.ru} сезон ${p.yy}`, `${p.name.uz} mavsum ${p.yy}`); };
 const leagueName = (id) => { const l = LEAGUES.find((x) => x.id === id); return l ? L(l.ru, l.uz) : ''; };
 const fpText = (u) => { const f = fairplay(u?.fpSum, u?.fpCount); return f === null ? '—' : comma(f.toFixed(1)); };
 const banned = (u) => u?.bannedUntil && new Date(u.bannedUntil) > new Date();
@@ -30,12 +32,19 @@ async function act(btn, fn) {
 // =====================================================================
 export const login = {
   render(_, store) {
+    const cfg = window.ACE_CONFIG || {};
+    const tg = store.mode === 'live' && cfg.telegramBot && store.telegramNonce;
+    const showSms = store.mode === 'demo' || cfg.smsLogin || !tg;
     return `<div class="hero" style="min-height:48vh;display:flex;flex-direction:column;justify-content:flex-end;gap:14px">
       <div class="brand" style="font-size:30px">${logo(56)} Ace Tennis</div>
       <div class="sub" style="font-size:16px">${L('Сообщество любителей тенниса Намангана: рейтинг, соперники, тренеры, турниры', 'Namangan tennis havaskorlari jamoasi: reyting, raqiblar, murabbiylar, turnirlar')}</div>
     </div>
     <div class="wrap">
-      <div class="card">
+      ${tg ? `<div class="card">
+        <a id="tgBtn" class="btn ball block" href="https://t.me/${esc(cfg.telegramBot)}?start=${store.telegramNonce()}" target="_blank" rel="noopener">${L('Войти через Telegram', 'Telegram orqali kirish')}</a>
+        <div class="muted mt" id="tgHint">${L('Откроется бот Ace Tennis: нажмите «Start» и «Поделиться номером», затем вернитесь сюда.', 'Ace Tennis boti ochiladi: «Start» va «Raqamni yuborish» tugmalarini bosing, so‘ng bu yerga qayting.')}</div>
+      </div>` : ''}
+      <div class="card" ${showSms ? '' : 'hidden'}>
         <form id="phoneForm">
           <label class="f" for="phone">${L('Номер телефона', 'Telefon raqami')}</label>
           <input id="phone" class="input" type="tel" inputmode="tel" autocomplete="tel" placeholder="+998 90 123 45 67" value="+998" required>
@@ -80,6 +89,27 @@ export const login = {
         go(r.isNew ? '#/onboarding' : '#/home');
       });
     });
+    const tgBtn = root.querySelector('#tgBtn');
+    if (tgBtn) {
+      let timer = null; const started = Date.now();
+      const hint = root.querySelector('#tgHint');
+      const check = async () => {
+        try {
+          const st = await store.telegramCheck(store.telegramNonce());
+          if (st === 'ready') { clearInterval(timer); document.removeEventListener('visibilitychange', onVis); go('#/home'); return; }
+          if (st === 'expired' || st === 'used' || Date.now() - started > 15 * 60e3) {
+            clearInterval(timer); hint.textContent = L('Время вышло. Обновите страницу и нажмите кнопку ещё раз.', 'Vaqt tugadi. Sahifani yangilang va qayta bosing.');
+          }
+        } catch (e) { hint.textContent = e.message; }
+      };
+      const onVis = () => { if (document.visibilityState === 'visible' && timer) check(); };
+      const startPolling = () => {
+        hint.textContent = L('Ждём подтверждения в Telegram…', 'Telegram’da tasdiq kutilmoqda…');
+        if (!timer) { timer = setInterval(check, 2500); document.addEventListener('visibilitychange', onVis); }
+      };
+      tgBtn.addEventListener('click', startPolling);
+      if (store.telegramPending?.()) startPolling(); // came back after the page reloaded
+    }
     root.querySelectorAll('[data-as]').forEach((b) => b.addEventListener('click', async () => {
       await store.loginAs(b.dataset.as); go(b.dataset.as === 'admin' ? '#/admin' : '#/home');
     }));
@@ -92,7 +122,7 @@ export const login = {
 // =====================================================================
 export const onboarding = {
   render(_, store) {
-    const u = store.me(); const isCoach = u.role === 'coach'; const isNew = !u.firstName;
+    const u = store.me(); const isCoach = u.role === 'coach'; const isNew = !profileDone(u);
     const opt = (list, val) => list.map(([v, ru, uz]) => `<option value="${esc(v)}" ${v === val ? 'selected' : ''}>${esc(L(ru, uz))}</option>`).join('');
     const c = u.coach || {};
     return `<div class="pagehead">${isNew ? '' : back('#/profile', true)}<h1 class="title">${isNew ? L('Анкета', 'Anketa') : L('Редактировать', 'Tahrirlash')}</h1></div>
@@ -145,7 +175,8 @@ export const onboarding = {
       const patch = { firstName: v('fn'), lastName: v('ln'), gender: v('g'), birthYear: +v('by'), district: v('d'), years: +v('y'), hand: v('h'), availability, photo };
       if (me.role !== 'coach') patch.selfLevel = v('lv');
       else patch.coach = { ...(me.coach || {}), price: +v('pr'), specialization: v('sp').split(',').map((s) => s.trim()).filter(Boolean), worksWith: v('ww'), experience: +v('y') };
-      await act(e.submitter, async () => { await store.saveProfile(patch); toast(L('Сохранено', 'Saqlandi')); go(me.firstName ? '#/profile' : '#/home'); });
+      const wasNew = !profileDone(me);
+      await act(e.submitter, async () => { await store.saveProfile(patch); toast(L('Сохранено', 'Saqlandi')); go(wasNew ? '#/home' : '#/profile'); });
     });
   },
 };
@@ -553,7 +584,7 @@ export const rating = {
     const me = store.me();
     if (rState.league === null) rState.league = me.role === 'player' && me.matches > 0 ? me.league : 'gold';
     const seg = `<div class="seg"><button class="${rState.view === 'players' ? 'on' : ''}" data-view="players">${L('Игроки', 'O‘yinchilar')}</button><button class="${rState.view === 'coaches' ? 'on' : ''}" data-view="coaches">${L('Тренеры', 'Murabbiylar')}</button><button class="${rState.view === 'fair' ? 'on' : ''}" data-view="fair">Fair Play</button></div>`;
-    const head = `<div class="pagehead" style="justify-content:space-between"><h1 class="title">${L('Рейтинг', 'Reyting')}</h1><span class="muted strong">${L('Наманган', 'Namangan')}</span></div>`;
+    const head = `<div class="pagehead" style="justify-content:space-between"><h1 class="title">${L('Рейтинг', 'Reyting')}</h1><span class="muted strong">${rState.period === 'year' ? L(`${new Date().getFullYear()} год`, `${new Date().getFullYear()} yil`) : seasonLabel()}</span></div>`;
     if (rState.view === 'coaches') {
       const cs = await store.coachRanking();
       return `${head}<div class="wrap">${seg}<div class="card" style="padding:0;overflow:hidden">
@@ -571,7 +602,7 @@ export const rating = {
     const [list, lead] = await Promise.all([store.ranking({ league: rState.league, period: rState.period }), store.leaders()]);
     const streakN = lead.streak ? lead.streak.form.match(/^В*/)[0].length : 0;
     return `${head}<div class="wrap">${seg}
-      <div class="seg"><button class="${rState.period === 'quarter' ? 'on' : ''}" data-period="quarter">${L('Квартал', 'Chorak')}</button><button class="${rState.period === 'year' ? 'on' : ''}" data-period="year">${L('Год', 'Yil')}</button></div>
+      <div class="seg"><button class="${rState.period === 'quarter' ? 'on' : ''}" data-period="quarter">${L('Сезон', 'Mavsum')}</button><button class="${rState.period === 'year' ? 'on' : ''}" data-period="year">${L('Год', 'Yil')}</button></div>
       <div class="chips scroll">${LEAGUES.map((l) => `<button class="chip ${rState.league === l.id ? 'on' : ''}" data-league="${l.id}">${L(l.ru, l.uz)}</button>`).join('')}</div>
       <div class="chips scroll" style="gap:8px">
         ${lead.top1 ? `<a href="#/profile/${lead.top1.id}" class="card dark" style="width:150px;flex-shrink:0;text-decoration:none"><div class="small strong" style="color:var(--ball)">${L('ДОЛЬШЕ ВСЕХ В ТОП-1', 'ENG UZOQ TOP-1')}</div><div class="strong mt">${esc(shortName(lead.top1))}</div><div class="num" style="font-size:28px">${lead.top1.top1Days} <span style="font-size:14px;font-weight:500">${L('дн.', 'kun')}</span></div></a>` : ''}
@@ -587,7 +618,7 @@ export const rating = {
           <span style="text-align:right;font-weight:600">${formatStrength(u.rating)}</span><span style="text-align:right" class="num">${fmtNum(u.points)}</span></a>`).join('')
         : `<div class="empty">${L('В этой лиге пока нет игроков', 'Bu ligada hali o‘yinchi yo‘q')}</div>`}
       </div>
-      <div class="muted small">${L('Очки квартала обнуляются 1 января, 1 апреля, 1 июля и 1 октября; годовые — 1 января. Уровень силы не обнуляется.', 'Chorak ochkolari 1-yanvar, 1-aprel, 1-iyul, 1-oktabrda nollanadi; yillik — 1-yanvarda. Kuch darajasi nollanmaydi.')}</div>
+      <div class="muted small">${L('Сезоны: весенний (март–май), летний (июнь–август), осенний (сентябрь–ноябрь), зимний (декабрь–февраль). Очки сезона обнуляются в его первый день, годовые — 1 января. Уровень силы не обнуляется.', 'Mavsumlar: bahorgi (mart–may), yozgi (iyun–avgust), kuzgi (sentabr–noyabr), qishki (dekabr–fevral). Mavsum ochkolari uning birinchi kunida, yillik — 1-yanvarda nollanadi. Kuch darajasi nollanmaydi.')}</div>
     </div>`;
   },
   mount(root) {

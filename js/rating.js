@@ -106,9 +106,27 @@ export function fairplay(sum, count) {
 
 export const FAIRPLAY_MIN_FOR_TOURNAMENT = 3.5;
 
-export function quarterKey(date = new Date()) {
-  const d = new Date(date);
-  return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`;
+// Seasons follow the real seasons: spring Mar–May, summer Jun–Aug, autumn Sep–Nov, winter Dec–Feb.
+// Winter belongs to the year it starts in: Dec 2026 – Feb 2027 = "Зимний 26".
+export function seasonKey(date = new Date()) {
+  const d = new Date(date); const m = d.getMonth(); const y = d.getFullYear();
+  if (m >= 2 && m <= 4) return `${y}-spring`;
+  if (m >= 5 && m <= 7) return `${y}-summer`;
+  if (m >= 8 && m <= 10) return `${y}-autumn`;
+  return m === 11 ? `${y}-winter` : `${y - 1}-winter`;
+}
+
+export const SEASONS = {
+  spring: { ru: 'Весенний', uz: 'Bahorgi' },
+  summer: { ru: 'Летний', uz: 'Yozgi' },
+  autumn: { ru: 'Осенний', uz: 'Kuzgi' },
+  winter: { ru: 'Зимний', uz: 'Qishki' },
+};
+
+// '2026-autumn' → { name: {ru,uz}, yy: '26' }
+export function seasonParts(key = seasonKey()) {
+  const [y, s] = key.split('-');
+  return { name: SEASONS[s], yy: y.slice(2) };
 }
 
 export function yearKey(date = new Date()) {
