@@ -56,13 +56,13 @@ const check = ({ data, error }) => { if (error) throw new Error(error.message); 
 const QUERY_TTL = 30e3;      // lists: ranking, news, tournaments…
 const USERS_TTL = 60e3;      // all profiles
 const PENDING_TTL = 30e3;    // "waiting for my confirmation" gate
-const CACHED = ['contacts', 'ranking', 'leaders', 'fairplayRanking', 'achievements', 'suggestOpponent', 'challenges', 'outgoing', 'history',
+const CACHED = ['coachRequests', 'contacts', 'ranking', 'leaders', 'fairplayRanking', 'achievements', 'suggestOpponent', 'challenges', 'outgoing', 'history',
   'coachStats', 'canReview', 'coachRanking', 'ratedFairplay', 'complaints', 'disputes', 'tournaments', 'tournament', 'news', 'stats'];
-const MUTATIONS = ['sharePhone', 'saveProfile', 'createMatch', 'createTraining', 'confirm', 'dispute', 'cancelOwn', 'createChallenge', 'answerChallenge',
+const MUTATIONS = ['resolveCoachRequest', 'sharePhone', 'saveProfile', 'createMatch', 'createTraining', 'confirm', 'dispute', 'cancelOwn', 'createChallenge', 'answerChallenge',
   'addReview', 'rateFairplay', 'complain', 'resolveComplaint', 'resolveDispute', 'setBan', 'applyTournament', 'createTournament',
   'approveEntry', 'startTournament', 'createTournamentMatch', 'addNews', 'addComment', 'hideComment', 'inviteCoach'];
 // These change ratings / profiles, so the profile list is reloaded too
-const PROFILE_MUTATIONS = new Set(['saveProfile', 'confirm', 'rateFairplay', 'resolveComplaint', 'resolveDispute', 'setBan', 'createTournamentMatch', 'inviteCoach']);
+const PROFILE_MUTATIONS = new Set(['resolveCoachRequest', 'saveProfile', 'confirm', 'rateFairplay', 'resolveComplaint', 'resolveDispute', 'setBan', 'createTournamentMatch', 'inviteCoach']);
 // Telegram login nonce lives 15 minutes; localStorage survives iPhone reloading the app while you are in Telegram
 const TG_KEY = 'ace_tg_login';
 const tgRead = () => { try { const v = JSON.parse(localStorage.getItem(TG_KEY) || 'null'); return v && Date.now() - v.t < 15 * 60e3 ? v : null; } catch { return null; } };
@@ -476,6 +476,17 @@ export class SupabaseStore {
   async addNews(d) { check(await this.sb.from('news').insert({ title: d.title, body: d.body, section: d.section, photos: d.photos || [] })); }
   async addComment(newsId, text) { check(await this.sb.from('news_comments').insert({ news_id: newsId, user_id: this.uid(), text })); }
   async hideComment(newsId, cid) { check(await this.sb.from('news_comments').delete().eq('id', cid)); }
+
+  // ---------- coach requests (login screen → admin) ----------
+  async coachRequest({ firstName, lastName, phone, experience, about }) {
+    const { error } = await this.sb.from('coach_requests').insert({ first_name: firstName, last_name: lastName, phone, experience: experience || null, about: about || '' });
+    if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'Заявка с этим номером уже отправлена — администратор свяжется с вами' : error.message);
+  }
+  async coachRequests() {
+    return check(await this.sb.from('coach_requests').select('*').order('created_at', { ascending: false }).limit(100)).map((r) => ({
+      id: r.id, firstName: r.first_name, lastName: r.last_name, phone: r.phone, experience: r.experience, about: r.about, status: r.status, createdAt: r.created_at }));
+  }
+  async resolveCoachRequest(id, approve) { check(await this.sb.rpc('resolve_coach_request', { p_id: id, p_approve: !!approve })); }
 
   // ---------- admin ----------
   async inviteCoach({ phone, firstName, lastName }) { check(await this.sb.rpc('invite_coach', { p_phone: phone, p_first: firstName, p_last: lastName })); }

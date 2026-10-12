@@ -70,6 +70,11 @@ export const login = {
         <a id="tgBtn" class="btn ball block" href="https://t.me/${esc(cfg.telegramBot)}?start=${store.telegramNonce()}" target="_blank" rel="noopener">${L('Войти через Telegram', 'Telegram orqali kirish')}</a>
         <div class="muted mt" id="tgHint">${L('Откроется бот Ace Tennis: нажмите «Start» и «Поделиться номером». Потом вернитесь в это приложение — вход произойдёт сам.', 'Ace Tennis boti ochiladi: «Start» va «Raqamni yuborish» tugmalarini bosing. So‘ng shu ilovaga qayting — kirish o‘zi bo‘ladi.')}</div>
       </div>` : ''}
+      <div class="card dark">
+        <div class="strong" style="font-size:17px">${L('Вы тренер по теннису?', 'Siz tennis murabbiyimisiz?')}</div>
+        <div class="sub mt" style="margin-top:6px">${L('Оставьте заявку — администратор свяжется с вами. После одобрения вы зарегистрируетесь и сразу получите профиль тренера.', 'Ariza qoldiring — administrator siz bilan bog‘lanadi. Tasdiqlangach, ro‘yxatdan o‘tib murabbiy profilini olasiz.')}</div>
+        <button class="btn ball block mt" type="button" data-coach-req>${L('Оставить заявку тренера', 'Murabbiy arizasini qoldirish')}</button>
+      </div>
       ${tg || mail ? installHint(false) : ''}
       <div class="card" ${showSms ? '' : 'hidden'}>
         <form id="phoneForm">
@@ -184,8 +189,40 @@ export const login = {
       await store.loginAs(b.dataset.as); go(b.dataset.as === 'admin' ? '#/admin' : '#/home');
     }));
     root.querySelector('[data-lang]').addEventListener('click', () => { setLang(getLang() === 'ru' ? 'uz' : 'ru'); rerender(); });
+    root.querySelector('[data-coach-req]')?.addEventListener('click', () => coachRequestSheet(store));
   },
 };
+
+// Coach request form (no account needed)
+function coachRequestSheet(store) {
+  sheet(`<h2 class="h">${L('Заявка тренера', 'Murabbiy arizasi')}</h2>
+    <div class="muted">${L('Администратор позвонит вам по этому номеру.', 'Administrator shu raqamga qo‘ng‘iroq qiladi.')}</div>
+    <form id="crf">
+      <div class="grid2"><div><label class="f" for="cfn">${L('Имя', 'Ism')}*</label><input id="cfn" class="input" required maxlength="60"></div>
+        <div><label class="f" for="cln">${L('Фамилия', 'Familiya')}*</label><input id="cln" class="input" required maxlength="60"></div></div>
+      <label class="f" for="cph">${L('Номер телефона', 'Telefon raqami')}*</label>
+      <input id="cph" class="input" type="tel" inputmode="tel" autocomplete="tel" value="+998 " required>
+      <label class="f" for="cex">${L('Опыт тренера', 'Murabbiylik tajribasi')}*</label>
+      <select id="cex" class="input" required><option value="">—</option>${EXPERIENCE.map(([v, ru, uz]) => `<option value="${v}">${esc(L(ru, uz))}</option>`).join('')}</select>
+      <label class="f" for="cab">${L('О себе: где тренируете, с кем работаете, цена', 'O‘zingiz haqingizda: qayerda, kim bilan, narx')}</label>
+      <textarea id="cab" class="input" maxlength="1000"></textarea>
+      <div class="grid2 mt"><button type="button" class="btn ghost" data-close>${L('Отмена', 'Bekor')}</button><button class="btn ball" id="crSend">${L('Отправить', 'Yuborish')}</button></div>
+    </form>`, (el, close) => {
+    el.querySelector('#crf').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = (id) => el.querySelector('#' + id).value.trim();
+      const phone = normPhone(v('cph'));
+      if (!phone) { toast(L('Введите номер в формате +998 90 123 45 67', 'Raqamni +998 90 123 45 67 shaklida kiriting')); return; }
+      act(el.querySelector('#crSend'), async () => {
+        await store.coachRequest({ firstName: v('cfn'), lastName: v('cln'), phone, experience: +v('cex') || null, about: v('cab') });
+        close();
+        sheet(`<h2 class="h">${L('Заявка отправлена', 'Ariza yuborildi')}</h2>
+          <div>${L('Администратор Ace Tennis позвонит вам. После одобрения нажмите «Регистрация», введите почту и пароль, а в анкете укажите этот же номер телефона — профиль тренера включится автоматически.', 'Administrator sizga qo‘ng‘iroq qiladi. Tasdiqlangach «Ro‘yxatdan o‘tish»ni bosing va anketada shu raqamni kiriting — murabbiy profili avtomatik yoqiladi.')}</div>
+          <button class="btn ball block mt" data-close>${L('Понятно', 'Tushunarli')}</button>`);
+      });
+    });
+  });
+}
 
 // =====================================================================
 // Onboarding / edit profile
@@ -940,19 +977,30 @@ export const newsItem = {
 export const admin = {
   async render(params, store) {
     const tab = params[0] || 'overview';
-    const tabs = [['overview', L('Обзор', 'Umumiy')], ['complaints', L('Жалобы', 'Shikoyatlar')], ['tournaments', L('Турниры', 'Turnirlar')], ['news', L('Новости', 'Yangiliklar')], ['users', L('Люди', 'Odamlar')]];
+    const tabs = [['overview', L('Обзор', 'Umumiy')], ['complaints', L('Жалобы', 'Shikoyatlar')], ['tournaments', L('Турниры', 'Turnirlar')], ['coaches', L('Заявки тренеров', 'Murabbiy arizalari')], ['news', L('Новости', 'Yangiliklar')], ['users', L('Люди', 'Odamlar')]];
     const head = `<div class="hero"><div class="topbar"><span class="brand">${logo(30)} ${L('Админ', 'Admin')}</span><button class="iconbtn" data-logout aria-label="${L('Выйти', 'Chiqish')}">${icon.close}</button></div></div>
       <div class="wrap" style="padding-bottom:0"><div class="chips scroll">${tabs.map(([k, l]) => `<a class="chip ${tab === k ? 'on' : ''}" style="display:inline-flex;align-items:center;text-decoration:none;${tab === k ? '' : 'color:inherit'}" href="#/admin/${k}">${l}</a>`).join('')}</div></div>`;
     let body = '';
     if (tab === 'overview') {
-      const s = await store.stats(); const cs = await store.complaints(); const ds = await store.disputes();
-      body = `<div class="grid2">${[[s.users, L('игроков', 'o‘yinchi')], [s.coaches, L('тренеров', 'murabbiy')], [s.matchesWeek, L('матчей за неделю', 'haftalik o‘yin')], [s.trainingsWeek, L('тренировок за неделю', 'haftalik mashg‘ulot')], [s.activePlayers, L('активных за 30 дней', '30 kunda faol')], [cs.filter((c) => c.status === 'open').length + ds.length, L('ждут решения', 'qaror kutmoqda')]].map(([n, l]) => `<div class="card"><div class="num" style="font-size:30px">${n}</div><div class="muted">${l}</div></div>`).join('')}</div>`;
+      const [s, cs, ds, crs] = await Promise.all([store.stats(), store.complaints(), store.disputes(), store.coachRequests ? store.coachRequests() : []]);
+      const newReq = crs.filter((r) => r.status === 'new').length;
+      body = `<div class="grid2">${[[s.users, L('игроков', 'o‘yinchi')], [s.coaches, L('тренеров', 'murabbiy')], [s.matchesWeek, L('матчей за неделю', 'haftalik o‘yin')], [s.trainingsWeek, L('тренировок за неделю', 'haftalik mashg‘ulot')], [s.activePlayers, L('активных за 30 дней', '30 kunda faol')], [cs.filter((c) => c.status === 'open').length + ds.length, L('ждут решения', 'qaror kutmoqda')], [newReq, L('заявок тренеров', 'murabbiy arizasi')]].map(([n, l]) => `<div class="card"><div class="num" style="font-size:30px">${n}</div><div class="muted">${l}</div></div>`).join('')}</div>`;
     }
     if (tab === 'complaints') {
       const cs = await store.complaints(); const ds = await store.disputes();
       body = `<div class="card"><h2 class="h">${L('Оспоренные счета', 'E’tiroz bildirilgan hisoblar')}</h2>${ds.map((m) => `<div style="padding:10px 0;border-top:1px solid #E8EDE3"><div class="strong">${esc(sideLabel(m, store, 'A'))} — ${esc(sideLabel(m, store, 'B'))}</div><div class="muted">${formatSets(m.sets)} · ${fmtDate(m.playedAt)}</div><div class="mt">«${esc(m.disputeReason || '')}»</div><div class="grid2 mt"><button class="btn sm" data-disp="${m.id}:1">${L('Засчитать счёт', 'Hisobni qabul qilish')}</button><button class="btn ghost sm" data-disp="${m.id}:0">${L('Отменить матч', 'O‘yinni bekor qilish')}</button></div></div>`).join('') || `<div class="muted">${L('Нет споров', 'Nizo yo‘q')}</div>`}</div>
         <div class="card"><h2 class="h">${L('Жалобы', 'Shikoyatlar')}</h2>${cs.map((c) => `<div style="padding:10px 0;border-top:1px solid #E8EDE3"><div class="row between"><span class="strong">${esc(shortName(store.user(c.authorId)))} → ${esc(shortName(store.user(c.targetId)))}</span><span class="tag ${c.status === 'open' ? 'warn' : c.status === 'accepted' ? 'bad' : 'ok'}">${c.status === 'open' ? L('новая', 'yangi') : c.status === 'accepted' ? L('принята', 'qabul') : L('отклонена', 'rad')}</span></div><div class="muted">${esc(c.reason)} · ${fmtDate(c.createdAt)}</div>${c.status === 'open' ? `<div class="grid2 mt"><button class="btn danger sm" data-cmp="${c.id}:1">${L('Принять', 'Qabul')}</button><button class="btn ghost sm" data-cmp="${c.id}:0">${L('Отклонить', 'Rad')}</button></div>` : ''}</div>`).join('') || `<div class="muted">${L('Жалоб нет', 'Shikoyat yo‘q')}</div>`}
         <div class="muted small mt">${L('Принятая жалоба = оценка Fair Play 1★. 2 за месяц — бан 7 дней, 4 — 30 дней.', 'Qabul qilingan shikoyat = Fair Play 1★. Oyiga 2 ta — 7 kun, 4 ta — 30 kun blok.')}</div></div>`;
+    }
+    if (tab === 'coaches') {
+      const rs = await store.coachRequests();
+      const st = { new: [L('новая', 'yangi'), 'warn'], approved: [L('одобрена', 'tasdiqlandi'), 'ok'], rejected: [L('отклонена', 'rad etildi'), 'bad'] };
+      body = `<div class="muted">${L('Позвоните тренеру и после разговора нажмите «Одобрить». Тренер регистрируется по почте и указывает в анкете этот номер — роль тренера включится сама.', 'Murabbiyga qo‘ng‘iroq qiling va «Tasdiqlash»ni bosing. Murabbiy anketada shu raqamni kiritsa, murabbiy roli o‘zi yoqiladi.')}</div>
+        ${rs.map((r) => `<div class="card"><div class="row between"><span class="strong">${esc(r.firstName)} ${esc(r.lastName)}</span><span class="tag ${st[r.status][1]}">${st[r.status][0]}</span></div>
+          <div class="muted">${yearsText(r.experience, 'exp')} · ${fmtDate(r.createdAt, true)}</div>
+          ${r.about ? `<div class="mt">${esc(r.about)}</div>` : ''}
+          <a class="btn ghost sm" href="tel:+${esc(String(r.phone).replace(/\D/g, ''))}" style="width:100%;margin-top:10px">📞 ${esc(fmtPhone(String(r.phone).replace(/\D/g, '')))}</a>
+          ${r.status === 'new' ? `<div class="grid2 mt"><button class="btn sm" data-creq="${r.id}:1">${L('Одобрить', 'Tasdiqlash')}</button><button class="btn ghost sm" data-creq="${r.id}:0">${L('Отклонить', 'Rad etish')}</button></div>` : ''}</div>`).join('') || `<div class="card"><div class="muted">${L('Заявок пока нет', 'Hozircha ariza yo‘q')}</div></div>`}`;
     }
     if (tab === 'tournaments') {
       const ts = await store.tournaments();
@@ -988,6 +1036,10 @@ export const admin = {
     root.querySelectorAll('[data-cmp]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [id, k] = b.dataset.cmp.split(':'); await store.resolveComplaint(id, k === '1'); rerender(); })));
     root.querySelectorAll('[data-ent]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [t, u, k] = b.dataset.ent.split(':'); await store.approveEntry(t, u, k === '1'); rerender(); })));
     root.querySelectorAll('[data-start]').forEach((b) => b.addEventListener('click', () => act(b, async () => { await store.startTournament(b.dataset.start); toast(L('Сетка создана', 'To‘r yaratildi')); rerender(); })));
+    root.querySelectorAll('[data-creq]').forEach((b) => b.addEventListener('click', () => act(b, async () => {
+      const [id, k] = b.dataset.creq.split(':'); await store.resolveCoachRequest(id, k === '1');
+      toast(k === '1' ? L('Одобрено. Тренер получит роль после регистрации с этим номером', 'Tasdiqlandi') : L('Заявка отклонена', 'Ariza rad etildi')); rerender();
+    })));
     root.querySelectorAll('[data-ban]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [u, d] = b.dataset.ban.split(':'); await store.setBan(u, +d); rerender(); })));
     root.querySelector('#tnew')?.addEventListener('submit', (e) => { e.preventDefault(); act(e.submitter, async () => {
       const v = (id) => root.querySelector('#' + id).value;

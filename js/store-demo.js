@@ -409,6 +409,18 @@ export class DemoStore {
   }
 
   // ---------- admin ----------
+  // ---------- coach requests ----------
+  async coachRequest(d) {
+    this.db.coachRequests = this.db.coachRequests || [];
+    if (this.db.coachRequests.some((r) => r.phone === d.phone && r.status === 'new')) throw new Error('Заявка с этим номером уже отправлена — администратор свяжется с вами');
+    this.db.coachRequests.unshift({ id: uid(), ...d, status: 'new', createdAt: nowIso() }); this.save();
+  }
+  async coachRequests() { return clone(this.db.coachRequests || []); }
+  async resolveCoachRequest(id, approve) {
+    const r = (this.db.coachRequests || []).find((x) => x.id === id);
+    if (approve) await this.inviteCoach({ phone: '+' + r.phone, firstName: r.firstName, lastName: r.lastName });
+    r.status = approve ? 'approved' : 'rejected'; this.save();
+  }
   async inviteCoach({ phone, firstName, lastName }) {
     let u = this.db.users.find((x) => x.phone && x.phone.replace(/\D/g, '') === phone.replace(/\D/g, ''));
     if (!u) { u = newPlayer({ phone, firstName, lastName }); this.db.users.push(u); }
