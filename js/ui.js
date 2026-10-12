@@ -66,13 +66,16 @@ export function fmtPhone(p) {
   const d = String(p || '').replace(/\D/g, '');
   return d.length === 12 ? `+${d.slice(0, 3)} ${d.slice(3, 5)} ${d.slice(5, 8)} ${d.slice(8, 10)} ${d.slice(10)}` : (p || '');
 }
-// 1 год, 2 года, 5 лет
-const plural = (n, [one, few, many]) => { const a = Math.abs(n) % 100, b = a % 10; return a > 10 && a < 20 ? many : b === 1 ? one : b > 1 && b < 5 ? few : many; };
+// How long someone plays (or coaches). Stored as months in the "years" column: 3, 6, 12, 24, 36, 48 (= more than 3 years).
+export const EXPERIENCE = [
+  [3, 'до 3 месяцев', '3 oygacha'], [6, 'до 6 месяцев', '6 oygacha'], [12, '1 год', '1 yil'],
+  [24, '2 года', '2 yil'], [36, '3 года', '3 yil'], [48, 'более 3 лет', '3 yildan ortiq'],
+];
 export function yearsText(n, kind = 'tennis') {
-  n = Number(n) || 0;
-  const y = `${n} ${L(plural(n, ['год', 'года', 'лет']), 'yil')}`;
-  if (kind === 'exp') return n ? L(`${y} опыта`, `${y} tajriba`) : L('опыт меньше года', 'tajriba 1 yildan kam');
-  return n ? L(`${y} в теннисе`, `${y} tennisda`) : L('недавно в теннисе', 'tennisda yangi');
+  const e = EXPERIENCE.find(([v]) => v === Number(n));
+  if (!e) return kind === 'exp' ? L('опыт не указан', 'tajriba ko‘rsatilmagan') : L('стаж не указан', 'staj ko‘rsatilmagan');
+  const t = L(e[1], e[2]);
+  return kind === 'exp' ? L(`опыт ${t}`, `tajriba ${t}`) : L(`в теннисе ${t}`, `tennisda ${t}`);
 }
 // Where the app is running: installed on the home screen, inside Telegram, or a normal browser
 export function appContext() {

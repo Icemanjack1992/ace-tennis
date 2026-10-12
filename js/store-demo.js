@@ -5,13 +5,15 @@ import {
 } from './logic.js';
 import { winnerFromSets, leagueFor, FAIRPLAY_MIN_FOR_TOURNAMENT, fairplay, TOURNAMENT_BONUS } from './rating.js';
 
-const KEY = 'ace_demo_v1';
+const KEY = 'ace_demo_v2';
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
 function safeGet() { try { return localStorage.getItem(KEY); } catch { return null; } }
 function safeSet(v) { try { localStorage.setItem(KEY, v); } catch { /* private mode */ } }
 
-const DISTRICTS = ['Центр', 'Давлатобод', 'Янги Наманган', 'Чорсу', 'Другой район'];
+const DISTRICTS = ['г. Наманган', 'Чустский район', 'Наманганский район', 'Учкурганский район', 'Касансайский район'];
+// Experience is stored in months: 3, 6, 12, 24, 36, 48 (= more than 3 years)
+const toMonths = (y) => (y >= 4 ? 48 : y * 12);
 const TIMES = ['утро', 'день', 'вечер', 'выходные'];
 
 function seed() {
@@ -28,7 +30,7 @@ function seed() {
   const skill = {};
   names.forEach(([f, l, g, by, yrs, s], i) => {
     const u = newPlayer({
-      firstName: f, lastName: l, gender: g, birthYear: by, years: yrs, district: DISTRICTS[i % 5],
+      firstName: f, lastName: l, gender: g, birthYear: by, years: toMonths(yrs), district: DISTRICTS[i % 5],
       selfLevel: yrs >= 5 ? 'продвинутый' : yrs >= 3 ? 'средний' : 'начинающий', hand: i % 6 === 2 ? 'левша' : 'правша',
       availability: [TIMES[i % 4], TIMES[(i + 2) % 4]], phone: `+99890${String(1000000 + i).slice(1)}`,
       createdAt: addHours(nowIso(), -24 * 120),
@@ -43,8 +45,8 @@ function seed() {
   ];
   for (const [f, l, g, exp, spec, ww] of coaches) {
     db.users.push(newPlayer({
-      role: 'coach', firstName: f, lastName: l, gender: g, years: exp, district: 'Центр', phone: '', availability: ['утро', 'вечер'],
-      coach: { verified: true, price: null, specialization: spec.split(';'), worksWith: ww, experience: exp },
+      role: 'coach', firstName: f, lastName: l, gender: g, years: 48, district: 'г. Наманган', phone: '', availability: ['утро', 'вечер'],
+      coach: { verified: true, price: null, specialization: spec.split(';'), worksWith: ww, experience: 48 },
       createdAt: addHours(nowIso(), -24 * 150),
     }));
   }

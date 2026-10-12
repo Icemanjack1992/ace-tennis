@@ -1,6 +1,6 @@
 import {
   L, esc, icon, logo, avatar, fullName, profileDone, fmtPhone, shortName, formBadges, fmtDate, hoursLeft, fmtNum, comma, toast, sheet, readSets, setLang, getLang,
-  yearsText, appContext, installHint, bindInstallHint, normPhone,
+  yearsText, appContext, installHint, bindInstallHint, normPhone, EXPERIENCE,
 } from './ui.js';
 import { formatStrength, LEAGUES, fairplay, formatSets, winnerFromSets, FAIRPLAY_MIN_FOR_TOURNAMENT, seasonParts } from './rating.js';
 
@@ -12,7 +12,18 @@ const leagueName = (id) => { const l = LEAGUES.find((x) => x.id === id); return 
 const fpText = (u) => { const f = fairplay(u?.fpSum, u?.fpCount); return f === null ? '—' : comma(f.toFixed(1)); };
 const banned = (u) => u?.bannedUntil && new Date(u.bannedUntil) > new Date();
 const back = (href = '#/home', light = false) => `<a href="${href}" class="iconbtn ${light ? 'light' : ''}" aria-label="${L('Назад', 'Orqaga')}">${icon.back}</a>`;
-const DISTRICTS = ['Центр', 'Давлатобод', 'Янги Наманган', 'Чорсу', 'Другой район'];
+// Namangan city + districts of Namangan region: [stored value, ru, uz]
+const DISTRICTS = [
+  ['г. Наманган', 'г. Наманган', 'Namangan shahri'], ['Касансайский район', 'Касансайский район', 'Kosonsoy tumani'],
+  ['Мингбулакский район', 'Мингбулакский район', 'Mingbuloq tumani'], ['Наманганский район', 'Наманганский район', 'Namangan tumani'],
+  ['Нарынский район', 'Нарынский район', 'Norin tumani'], ['Папский район', 'Папский район', 'Pop tumani'],
+  ['Туракурганский район', 'Туракурганский район', 'To‘raqo‘rg‘on tumani'], ['Уйчинский район', 'Уйчинский район', 'Uychi tumani'],
+  ['Учкурганский район', 'Учкурганский район', 'Uchqo‘rg‘on tumani'], ['Чартакский район', 'Чартакский район', 'Chortoq tumani'],
+  ['Чустский район', 'Чустский район', 'Chust tumani'], ['Янгикурганский район', 'Янгикурганский район', 'Yangiqo‘rg‘on tumani'],
+];
+const districtName = (v) => { const d = DISTRICTS.find((x) => x[0] === v); return d ? L(d[1], d[2]) : (v || ''); };
+// Birth years for 16+ (2010 … 1950)
+const BIRTH_YEARS = Array.from({ length: 2010 - 1950 + 1 }, (_, i) => 2010 - i);
 const TIMES = [['утро', 'Утро', 'Ertalab'], ['день', 'День', 'Kunduzi'], ['вечер', 'Вечер', 'Kechqurun'], ['выходные', 'Выходные', 'Dam olish kunlari']];
 const SKILLS = [['Подача', 'Serve'], ['Форхенд', 'Forehand'], ['Бэкхенд', 'Backhand'], ['Удар с лёта', 'Volley'], ['Приём подачи', 'Qabul'], ['Физподготовка', 'Jismoniy tayyorgarlik'], ['Тактика', 'Taktika']];
 const LEVELS = [['начинающий', 'Начинающий', 'Boshlovchi'], ['средний', 'Средний', 'O‘rta'], ['продвинутый', 'Продвинутый', 'Yuqori']];
@@ -198,12 +209,12 @@ export const onboarding = {
         <div class="muted small" id="phHint" style="margin-top:6px">${L('Другие игроки его не видят. Вы сами решаете, кому показать номер, — при вызове на матч.', 'Boshqalar uni ko‘rmaydi. Raqamni kimga ko‘rsatishni o‘yinga chaqiruvda o‘zingiz hal qilasiz.')}</div>
         <div class="grid2">
           <div><label class="f" for="g">${L('Пол', 'Jinsi')}*</label><select id="g" class="input" required><option value="">—</option>${opt([['м', 'Мужской', 'Erkak'], ['ж', 'Женский', 'Ayol']], u.gender)}</select></div>
-          <div><label class="f" for="by">${L('Год рождения', 'Tug‘ilgan yil')}*</label><input id="by" class="input" type="number" inputmode="numeric" min="1940" max="2020" required value="${esc(u.birthYear || '')}"></div>
+          <div><label class="f" for="by">${L('Год рождения', 'Tug‘ilgan yil')}*</label><select id="by" class="input" required><option value="">—</option>${BIRTH_YEARS.map((y) => `<option value="${y}" ${Number(u.birthYear) === y ? 'selected' : ''}>${y}</option>`).join('')}</select></div>
         </div>
         <label class="f" for="d">${L('Район', 'Tuman')}*</label>
-        <select id="d" class="input" required><option value="">—</option>${opt(DISTRICTS.map((x) => [x, x, x]), u.district)}</select>
+        <select id="d" class="input" required><option value="">—</option>${opt(DISTRICTS, u.district)}</select>
         <div class="grid2">
-          <div><label class="f" for="y">${isCoach ? L('Лет опыта', 'Tajriba (yil)') : L('Лет в теннисе', 'Tennisda (yil)')}*</label><input id="y" class="input" type="number" inputmode="numeric" min="0" max="70" required value="${esc(u.years ?? '')}"></div>
+          <div><label class="f" for="y">${isCoach ? L('Опыт тренера', 'Murabbiylik tajribasi') : L('Сколько играете', 'Qancha o‘ynaysiz')}*</label><select id="y" class="input" required><option value="">—</option>${opt(EXPERIENCE.map(([v, ru, uz]) => [String(v), ru, uz]), String(u.years ?? ''))}</select></div>
           <div><label class="f" for="h">${L('Ведущая рука', 'Asosiy qo‘l')}</label><select id="h" class="input"><option value="">—</option>${opt([['правша', 'Правша', 'O‘naqay'], ['левша', 'Левша', 'Chapaqay']], u.hand)}</select></div>
         </div>
         ${isCoach ? '' : `<label class="f" for="lv">${L('Уровень (самооценка)', 'Daraja (o‘z bahosi)')}*</label><select id="lv" class="input" required><option value="">—</option>${opt(LEVELS, u.selfLevel)}</select>`}
@@ -624,7 +635,7 @@ export const profile = {
         ${own ? `<a class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" href="#/edit">${L('Редактировать', 'Tahrirlash')}</a>` : `<button class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" data-complain>${L('Пожаловаться', 'Shikoyat')}</button>`}</div>
       <div class="row mt" style="gap:16px">${avatar(u, 'lg')}<div class="grow"><h1 class="title" style="font-size:26px;text-transform:none">${esc(fullName(u))}</h1>
         <div class="sub">${isCoach ? L('Тренер', 'Murabbiy') : L('Любитель', 'Havaskor')} · ${isCoach ? yearsText(u.coach?.experience || u.years, 'exp') : yearsText(u.years)}</div>
-        <div class="sub">${esc([u.hand, u.district].filter(Boolean).join(' · '))}</div></div></div>
+        <div class="sub">${esc([u.hand, districtName(u.district)].filter(Boolean).join(' · '))}</div></div></div>
       <div class="grid3 mt">
         <div class="stat"><div class="num" style="color:var(--ball)">${formatStrength(u.rating)}</div><div class="sub small">${L('уровень силы', 'kuch darajasi')}</div></div>
         <div class="stat"><div class="num">${place ? '#' + place : '—'}</div><div class="sub small">${leagueName(u.league)}</div></div>
@@ -739,9 +750,9 @@ export const search = {
     return `<div class="pagehead"><h1 class="title">${L('Поиск', 'Qidiruv')}</h1></div><div class="wrap">${tabs}${qbox}
       <div class="chips scroll">${chip('league', 'all', L('Все лиги', 'Barcha ligalar'))}${LEAGUES.map((l) => chip('league', l.id, L(l.ru, l.uz))).join('')}</div>
       <div class="chips scroll">${chip('time', 'all', L('Любое время', 'Istalgan vaqt'))}${TIMES.map(([v, ru, uz]) => chip('time', v, L(ru, uz))).join('')}</div>
-      <div class="chips scroll">${chip('gender', 'all', L('Все', 'Barchasi'))}${chip('gender', 'м', L('Мужчины', 'Erkaklar'))}${chip('gender', 'ж', L('Женщины', 'Ayollar'))}${chip('district', 'all', L('Все районы', 'Barcha tumanlar'))}${DISTRICTS.map((d) => chip('district', d, d)).join('')}</div>
+      <div class="chips scroll">${chip('gender', 'all', L('Все', 'Barchasi'))}${chip('gender', 'м', L('Мужчины', 'Erkaklar'))}${chip('gender', 'ж', L('Женщины', 'Ayollar'))}${chip('district', 'all', L('Все районы', 'Barcha tumanlar'))}${DISTRICTS.map(([v, ru, uz]) => chip('district', v, L(ru, uz))).join('')}</div>
       <div class="muted">${L('Ближе всего к вашему уровню', 'Darajangizga eng yaqin')} · <span data-count>${list.length}</span></div>
-      ${list.map((u) => `<article class="card" data-name="${esc(fullName(u).toLowerCase())}"><a href="#/profile/${u.id}" class="row" style="text-decoration:none;color:inherit">${avatar(u)}<div class="grow"><div class="strong">${esc(fullName(u))}</div><div class="muted">${yearsText(u.years)} · ${esc(u.district || '')}${u.availability.length ? ' · ' + esc(u.availability.join(', ')) : ''}</div></div>
+      ${list.map((u) => `<article class="card" data-name="${esc(fullName(u).toLowerCase())}"><a href="#/profile/${u.id}" class="row" style="text-decoration:none;color:inherit">${avatar(u)}<div class="grow"><div class="strong">${esc(fullName(u))}</div><div class="muted">${yearsText(u.years)} · ${esc(districtName(u.district))}${u.availability.length ? ' · ' + esc(u.availability.join(', ')) : ''}</div></div>
         <div style="text-align:right"><div class="num" style="font-size:22px;line-height:1">${formatStrength(u.rating)}</div><div class="muted small strong">${leagueName(u.league).toUpperCase()}</div></div></a>
         <div class="row between mt">${formBadges(u.form)}<button class="btn ball sm" data-challenge="${u.id}">${L('Вызвать', 'Chaqirish')}</button></div></article>`).join('') }
       <div class="empty" data-none ${list.length ? 'hidden' : ''}>${L('Никого не нашли — попробуйте снять фильтры', 'Hech kim topilmadi — filtrlarni olib tashlang')}</div>
