@@ -23,7 +23,8 @@ const routes = [
   [/^#\/tournament\/([\w-]+)$/, V.tournament, { tab: 'home' }],
   [/^#\/news$/, V.news, { tab: 'home' }],
   [/^#\/news\/([\w-]+)$/, V.newsItem, { tab: 'home' }],
-  [/^#\/admin(?:\/(\w+))?$/, V.admin, { tab: 'admin', admin: true }],
+  [/^#\/admin(?:\/(\w+))?(?:\/([\w-]+))?$/, V.admin, { tab: 'admin', admin: true }],
+  [/^#\/support$/, V.support, { tab: 'profile', gateFree: true }],
 ];
 
 function nav(active) {
@@ -125,7 +126,7 @@ function prefetch() {
     const quiet = (p) => p?.catch?.(() => {});
     quiet(store.listUsers({ role: 'player' }));
     quiet(store.challenges());
-    if (me.role !== 'admin') quiet(store.ranking({ league: me.role === 'player' && me.matches > 0 ? me.league : 'gold', period: 'quarter' }));
+    if (me.role !== 'admin') quiet(store.ranking({ league: me.role === 'player' ? (me.league || 'novice') : 'gold', period: 'quarter', region: me.region || '' }));
     quiet(store.tournaments());
   });
 }

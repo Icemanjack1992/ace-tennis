@@ -32,7 +32,7 @@ function seed() {
     const u = newPlayer({
       firstName: f, lastName: l, gender: g, birthYear: by, years: toMonths(yrs), region: 'namangan', district: DISTRICTS[i % 5],
       selfLevel: yrs >= 5 ? 'продвинутый' : yrs >= 3 ? 'средний' : 'начинающий', hand: i % 6 === 2 ? 'левша' : 'правша',
-      availability: [TIMES[i % 4], TIMES[(i + 2) % 4]], phone: `+99890${String(1000000 + i).slice(1)}`,
+      availability: [TIMES[i % 4], TIMES[(i + 2) % 4]], phone: `+99890${String(1000000 + i)}`,
       createdAt: addHours(nowIso(), -24 * 120),
     });
     skill[u.id] = s;
@@ -355,8 +355,8 @@ export class DemoStore {
     if (keep) confirmMatch(this.db, m, 'admin'); else m.status = 'cancelled';
     this.save();
   }
-  async setBan(userId, days) {
-    const u = this.user(userId); u.bannedUntil = days ? addHours(nowIso(), days * 24) : null; this.save();
+  async setBan(userId, days, reason = '') {
+    const u = this.user(userId); u.bannedUntil = days ? addHours(nowIso(), days * 24) : null; u.banReason = days ? reason : ''; this.save();
   }
 
   // ---------- tournaments ----------
@@ -431,14 +431,54 @@ export class DemoStore {
     u.role = 'coach'; u.coach = { verified: true, price: null, specialization: [], worksWith: '', experience: u.years || 0, ...(u.coach || {}) };
     this.save();
   }
-  async stats() {
+  async stats(region = '') {
     const week = addHours(nowIso(), -24 * 7);
+    const inR = (u) => u && (!region || (u.region || 'namangan') === region);
+    const us = this.db.users.filter((u) => u.role !== 'admin');
+    const byRegion = {}; us.forEach((u) => { const r = u.region || '-'; byRegion[r] = (byRegion[r] || 0) + 1; });
     return {
-      users: this.db.users.filter((u) => u.role === 'player').length,
-      coaches: this.db.users.filter((u) => u.role === 'coach').length,
-      matchesWeek: this.db.matches.filter((m) => m.status === 'confirmed' && m.playedAt >= week).length,
-      trainingsWeek: this.db.trainings.filter((t) => t.status === 'confirmed' && t.playedAt >= week).length,
-      activePlayers: new Set(this.db.matches.filter((m) => m.playedAt >= addHours(nowIso(), -24 * 30)).flatMap((m) => [...m.teamA, ...m.teamB])).size,
+      players: us.filter((u) => u.role === 'player' && inR(u)).length,
+      coaches: us.filter((u) => u.role === 'coach' && inR(u)).length,
+      newWeek: us.filter((u) => inR(u) && u.createdAt >= week).length,
+      banned: us.filter((u) => inR(u) && u.bannedUntil && new Date(u.bannedUntil) > new Date()).length,
+      matchesWeek: this.db.matches.filter((m) => m.status === 'confirmed' && m.playedAt >= week && inR(this.user(m.createdBy))).length,
+      trainingsWeek: this.db.trainings.filter((t) => t.status === 'confirmed' && t.playedAt >= week && inR(this.user(t.playerId))).length,
+      active30: new Set(this.db.matches.filter((m) => m.playedAt >= addHours(nowIso(), -24 * 30)).flatMap((m) => [...m.teamA, ...m.teamB]).filter((id) => inR(this.user(id)))).size,
+      openComplaints: this.db.complaints.filter((c) => c.status === 'open').length,
+      disputes: this.db.matches.filter((m) => m.status === 'disputed').length,
+      coachRequests: (this.db.coachRequests || []).filter((r) => r.status === 'new').length,
+      support: new Set((this.db.support || []).filter((m) => !m.fromAdmin && !m.readAt).map((m) => m.userId)).size,
+      byRegion,
     };
   }
+  async findByNo(no) { const n = Number(String(no || '').replace(/\D/g, '')); return clone(this.db.users.find((u) => Number(u.playerNo) === n) || null); }
+  async adminUsers({ region = '', role = '', q = '', filter = '', offset = 0, limit = 50 } = {}) {
+    const needle = String(q || '').trim().toLowerCase(); const no = /^#?\d+$/.test(needle) ? Number(needle.replace('#', '')) : null;
+    const list = this.db.users.filter((u) => u.role !== 'admin' && (!region || (u.region || '') === region) && (!role || u.role === role)
+      && (filter !== 'banned' || (u.bannedUntil && new Date(u.bannedUntil) > new Date()))
+      && (!needle || (no ? Number(u.playerNo) === no : `${u.firstName} ${u.lastName}`.toLowerCase().includes(needle))))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return { total: list.length, rows: clone(list.slice(offset, offset + limit)).map((u) => ({ ...u, email: '' })) };
+  }
+  async adminExport(o = {}) {
+    return (await this.adminUsers({ ...o, limit: 100000 })).rows.map((u) => ({ id: u.id, player_no: u.playerNo, role: u.role, first_name: u.firstName, last_name: u.lastName,
+      region: u.region, district: u.district, league: u.league, rating: u.rating, matches: u.matches, banned_until: u.bannedUntil, created_at: u.createdAt, phone: u.phone, email: '' }));
+  }
+  // ---------- support chat ----------
+  sup() { this.db.support = this.db.support || []; return this.db.support; }
+  async supportMine() { const id = this.db.meId; return clone(this.sup().filter((m) => m.userId === id)); }
+  async supportUnread() { const id = this.db.meId; return this.sup().filter((m) => m.userId === id && m.fromAdmin && !m.readAt).length; }
+  async supportSend(text) { this.sup().push({ id: uid(), userId: this.db.meId, fromAdmin: false, text, createdAt: nowIso(), readAt: null }); this.save(); }
+  async supportReply(userId, text) { this.sup().push({ id: uid(), userId, fromAdmin: true, text, createdAt: nowIso(), readAt: null }); this.save(); }
+  async supportRead(userId = null) {
+    const me = this.me();
+    this.sup().forEach((m) => { if (userId && me.role === 'admin' ? (m.userId === userId && !m.fromAdmin) : (m.userId === me.id && m.fromAdmin)) m.readAt = m.readAt || nowIso(); });
+    this.save();
+  }
+  async supportThreads() {
+    const by = {};
+    for (const m of this.sup()) { const t = by[m.userId] || (by[m.userId] = { userId: m.userId, unread: 0 }); t.lastText = m.text; t.lastFromAdmin = m.fromAdmin; t.lastAt = m.createdAt; if (!m.fromAdmin && !m.readAt) t.unread++; }
+    return Object.values(by).sort((a, b) => (b.unread > 0) - (a.unread > 0) || b.lastAt.localeCompare(a.lastAt));
+  }
+  async supportThread(userId) { return clone(this.sup().filter((m) => m.userId === userId)); }
 }

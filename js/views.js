@@ -25,6 +25,7 @@ const placeText = (u) => [districtName(u.district, regionOf(u)), regionOf(u) && 
 const parseNo = (v) => { const m = String(v || '').match(/(\d{3,9})/); return m ? Number(m[1]) : null; };
 async function findByNo(store, v) {
   const no = parseNo(v); if (!no) return null;
+  if (store.findByNo) return store.findByNo(no);
   return (await store.listUsers()).find((u) => Number(u.playerNo) === no) || null;
 }
 // Not a <form>: it is also used inside the match form
@@ -494,9 +495,10 @@ export const home = {
   async render(_, store) {
     const me = store.me();
     if (me.role === 'admin') { setTimeout(() => go('#/admin'), 0); return ''; }
-    const [rank, out, chs, sugg, tours, phones] = await Promise.all([
-      store.ranking({ league: me.league, period: 'quarter' }), store.outgoing(), store.challenges(), store.suggestOpponent(), store.tournaments(),
+    const [rank, out, chs, sugg, tours, phones, supUnread] = await Promise.all([
+      store.ranking({ league: me.league, period: 'quarter', region: regionOf(me) }), store.outgoing(), store.challenges(), store.suggestOpponent(), store.tournaments(),
       store.contacts ? store.contacts().catch(() => ({})) : {},
+      store.supportUnread ? store.supportUnread().catch(() => 0) : 0,
     ]);
     // Opponent's number (only if he chose to share it) or a "share mine" button
     const call = (c) => phones[c.id]
@@ -527,9 +529,10 @@ export const home = {
           <div class="strong">${leagueName(me.league)}${place ? ` · ${place} ${L('место', 'o‘rin')}` : ''} · ${fmtNum(me.pointsQ)} ${L('очк.', 'ochko')}</div></div>
       </div>
       <div class="row mt" style="gap:8px"><span class="sub small">${L('Последние 5:', 'So‘nggi 5:')}</span>${formBadges(me.form, 'hero')}</div>
-      ${banned(me) ? `<div class="tag bad mt">${L('Аккаунт ограничен до', 'Akkaunt cheklangan')}: ${fmtDate(me.bannedUntil)}</div>` : ''}
+      ${banned(me) ? `<div class="tag bad mt" style="text-transform:none">${new Date(me.bannedUntil).getFullYear() > new Date().getFullYear() + 50 ? L('Аккаунт заблокирован', 'Akkaunt bloklangan') : `${L('Аккаунт ограничен до', 'Akkaunt cheklangan')}: ${fmtDate(me.bannedUntil)}`}${me.banReason ? ' · ' + esc(me.banReason) : ''}</div>` : ''}
     </div>
     <div class="wrap">
+      ${supUnread ? `<a href="#/support" class="card hl" style="display:block;text-decoration:none;color:inherit"><span class="tag warn">${L('Ответ администрации', 'Ma’muriyat javobi')}</span><div class="strong mt">${L('Вам ответили — открыть', 'Sizga javob berildi — ochish')} →</div></a>` : ''}
       ${installHint()}
       ${openTours.map((t) => `<a href="#/tournament/${t.id}" class="card dark" style="text-decoration:none;display:block"><span class="tag ball">${L('Открыта регистрация', 'Ro‘yxatdan o‘tish ochiq')}</span>
         <div class="num mt" style="font-size:22px;text-transform:uppercase;color:#fff">${esc(t.name)}</div>
@@ -814,10 +817,13 @@ export const profile = {
     const me = store.me();
     const id = params[0] || me.id; const own = id === me.id;
     if (!params[0] && me.role === 'admin') { setTimeout(() => go('#/admin'), 0); return ''; }
+    if (!store.user(id) && store.ensureUsers) await store.ensureUsers([id]);
     const u = store.user(id);
     if (!u) return `<div class="wrap"><div class="card">${L('Игрок не найден', 'O‘yinchi topilmadi')}</div></div>`;
+    const isAdm = me.role === 'admin';
     if (u.role === 'coach' && !own) { setTimeout(() => go(`#/coach/${id}`), 0); return ''; }
-    const [hist, ach, rank, fpRank] = await Promise.all([store.history(id), store.achievements(id), store.ranking({ league: u.league, period: 'quarter' }), store.fairplayRanking()]);
+    const [hist, ach, rank, fpRank, supUnread] = await Promise.all([store.history(id), store.achievements(id), store.ranking({ league: u.league, period: 'quarter', region: regionOf(u) }), store.fairplayRanking(regionOf(u)),
+      own && store.supportUnread ? store.supportUnread().catch(() => 0) : 0]);
     const place = rank.find((x) => x.id === id)?.place;
     const fpPlace = fpRank.findIndex((x) => x.id === id) + 1;
     const winPct = u.matches ? Math.round((u.wins / u.matches) * 100) : 0;
@@ -829,7 +835,7 @@ export const profile = {
     const trainHours = hist.trainings.filter((t) => t.playerId === id).reduce((s, t) => s + t.hours, 0);
     return `<div class="hero">
       <div class="topbar">${own ? `<span></span>` : back('#/rating')}
-        ${own ? `<a class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" href="#/edit">${L('Редактировать', 'Tahrirlash')}</a>` : `<button class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" data-complain>${L('Пожаловаться', 'Shikoyat')}</button>`}</div>
+        ${own ? `<a class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" href="#/edit">${L('Редактировать', 'Tahrirlash')}</a>` : isAdm ? '' : `<button class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" data-complain>${L('Пожаловаться', 'Shikoyat')}</button>`}</div>
       <div class="row mt" style="gap:16px">${avatar(u, 'lg')}<div class="grow"><h1 class="title" style="font-size:26px;text-transform:none">${esc(fullName(u))}</h1>
         <div class="sub">${isCoach ? L('Тренер', 'Murabbiy') : L('Любитель', 'Havaskor')} · ${isCoach ? yearsText(u.coach?.experience || u.years, 'exp') : yearsText(u.years)}</div>
         <div class="sub">${esc([u.hand, placeText(u)].filter(Boolean).join(' · '))}</div>
@@ -843,6 +849,8 @@ export const profile = {
         <div class="row" style="gap:8px">${icon.shield.replace('currentColor', '#D8F244')}<div><div class="strong">Fair Play${fpPlace ? ` · ${fpPlace} ${L('место', 'o‘rin')}` : ''}</div><div class="sub small">${L('пунктуальность · честный счёт', 'o‘z vaqtida · halol hisob')} · ${u.fpCount} ${L('оценок', 'baho')}</div></div></div>
         <span class="num" style="font-size:24px;color:var(--ball)">${fpText(u)}</span></div>
       ${!own && store.me().role !== 'admin' ? `<div class="grid2 mt"><button class="btn ball" data-challenge>${L('Вызвать', 'Chaqirish')}</button><a class="btn ghost" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.3)" href="#/add/match?opp=${id}">${L('Записать матч', 'O‘yin yozish')}</a></div>` : ''}
+      ${isAdm && !own ? `<div class="stat mt" style="background:rgba(255,255,255,.08)"><div class="sub small">${L('Для администратора', 'Administrator uchun')}${banned(u) ? ' · ' + banText(u) : ''}</div>
+        <div class="grid2 mt"><a class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.3)" href="#/admin/support/${u.id}">${L('Написать', 'Yozish')}</a>${banned(u) ? `<button class="btn ball sm" data-unban="${u.id}">${L('Снять блок', 'Blokdan chiqarish')}</button>` : `<button class="btn danger sm" data-banu="${u.id}">${L('Заблокировать', 'Bloklash')}</button>`}</div></div>` : ''}
     </div>
     <div class="wrap">
       ${awardsHtml(ach)}
@@ -859,6 +867,7 @@ export const profile = {
         ${store.changePassword ? `<button class="btn ghost block mt" data-pw>${L('Сменить пароль', 'Parolni o‘zgartirish')}</button>` : ''}
         <div class="kv mt"><span>${L('Версия приложения', 'Ilova versiyasi')}</span><span class="muted strong">${APP_VERSION}</span></div>
         <button class="btn block mt" data-update>${L('Проверить обновление', 'Yangilanishni tekshirish')}</button>
+        <a class="btn ghost block mt" href="#/support">${L('Написать администрации', 'Ma’muriyatga yozish')}${supUnread ? ` <span class="tag bad">${supUnread}</span>` : ''}</a>
         <button class="btn ghost block mt" data-terms>${termsTitle()}</button>
         <button class="btn ghost block mt" data-logout>${L('Выйти', 'Chiqish')}</button></div>` : ''}
     </div>`;
@@ -885,6 +894,8 @@ export const profile = {
       });
     }));
     root.querySelector('[data-complain]')?.addEventListener('click', () => complaintSheet(store, id, null));
+    root.querySelector('[data-banu]')?.addEventListener('click', () => banSheet(store, store.user(id), rerender));
+    root.querySelector('[data-unban]')?.addEventListener('click', (e) => act(e.currentTarget, async () => { await unban(store, id); rerender(); }));
     root.querySelectorAll('[data-l]').forEach((b) => b.addEventListener('click', async () => { setLang(b.dataset.l); try { await store.saveProfile({ lang: b.dataset.l }); } catch { /* demo */ } rerender(); }));
     root.querySelector('[data-logout]')?.addEventListener('click', async () => { await store.signOut(); go('#/login'); });
   },
@@ -906,20 +917,20 @@ export const rating = {
     const seg = `<div class="seg"><button class="${rState.view === 'players' ? 'on' : ''}" data-view="players">${L('Игроки', 'O‘yinchilar')}</button><button class="${rState.view === 'coaches' ? 'on' : ''}" data-view="coaches">${L('Тренеры', 'Murabbiylar')}</button><button class="${rState.view === 'fair' ? 'on' : ''}" data-view="fair">Fair Play</button></div>`;
     const head = `<div class="pagehead" style="justify-content:space-between"><h1 class="title">${L('Рейтинг', 'Reyting')}</h1><span class="muted strong" style="text-align:right">${esc(regionShort(rg))}<br>${rState.period === 'year' ? L(`${new Date().getFullYear()} год`, `${new Date().getFullYear()} yil`) : seasonLabel()}</span></div>`;
     if (rState.view === 'coaches') {
-      const cs = (await store.coachRanking()).filter((c) => !rg || regionOf(c) === rg);
+      const cs = (await store.coachRanking(rg)).filter((c) => !rg || regionOf(c) === rg);
       return `${head}<div class="wrap">${regionBar}${seg}<div class="card" style="padding:0;overflow:hidden">
         <div class="rt-row head" style="grid-template-columns:30px 1fr 56px 56px"><span>№</span><span>${L('ТРЕНЕР', 'MURABBIY')}</span><span style="text-align:right">${L('УЧЕН.', 'SHOG.')}</span><span style="text-align:right">${L('ЗАНЯТ.', 'MASHG‘.')}</span></div>
         ${cs.map((c, i) => `<a href="#/coach/${c.id}" class="rt-row ${i < 3 ? 'top' : ''}" style="grid-template-columns:30px 1fr 56px 56px;text-decoration:none;color:inherit"><span class="p">${i + 1}</span><span class="row" style="gap:8px;min-width:0">${avatar(c, 'sm')}<span class="grow"><span class="strong ellipsis" style="display:block">${esc(fullName(c))}</span><span class="stars small">★ ${c.stats.avg ? comma(c.stats.avg) : '—'}</span> <span class="muted small">· ${c.stats.reviews.length} ${L('отз.', 'fikr')}</span></span></span><span style="text-align:right" class="strong">${c.stats.students}</span><span style="text-align:right" class="num">${c.stats.trainings}</span></a>`).join('')}
       </div><div class="muted">${L('Рейтинг тренеров: число учеников, занятий и средняя оценка учеников.', 'Murabbiylar reytingi: shogirdlar, mashg‘ulotlar soni va o‘rtacha baho.')}</div></div>`;
     }
     if (rState.view === 'fair') {
-      const fp = (await store.fairplayRanking()).filter((u) => !rg || regionOf(u) === rg);
+      const fp = (await store.fairplayRanking(rg)).filter((u) => !rg || regionOf(u) === rg);
       return `${head}<div class="wrap">${regionBar}${seg}<div class="card" style="padding:0;overflow:hidden">
         <div class="rt-row head" style="grid-template-columns:30px 1fr 56px"><span>№</span><span>${L('ИГРОК', 'O‘YINCHI')}</span><span style="text-align:right">FAIR PLAY</span></div>
         ${fp.slice(0, 30).map((u, i) => `<a href="#/profile/${u.id}" class="rt-row ${u.id === me.id ? 'top' : ''}" style="grid-template-columns:30px 1fr 56px;text-decoration:none;color:inherit"><span class="p">${i + 1}</span><span class="row" style="gap:8px;min-width:0">${avatar(u, 'sm')}<span class="strong ellipsis">${esc(fullName(u))}${u.role === 'coach' ? ` <span class="tag soft">${L('Тренер', 'Murabbiy')}</span>` : ''}</span></span><span style="text-align:right" class="num">${fpText(u)}</span></a>`).join('')}
       </div><div class="muted">${L('Оценки соперников после матчей: пунктуальность и честный счёт. Ниже 3,5 — нельзя участвовать в турнирах.', 'Raqiblar bahosi: o‘z vaqtida kelish va halol hisob. 3,5 dan past — turnirlarda qatnashib bo‘lmaydi.')}</div></div>`;
     }
-    const [list, lead] = await Promise.all([store.ranking({ league: rState.league, period: rState.period, region: rg }), store.leaders(rg)]);
+    const [list, lead] = await Promise.all([store.ranking({ league: rState.league, period: rState.period, region: rg || '' }), store.leaders(rg)]);
     const streakN = lead.streak ? lead.streak.form.match(/^В*/)[0].length : 0;
     return `${head}<div class="wrap">${regionBar}${seg}
       <div class="seg"><button class="${rState.period === 'quarter' ? 'on' : ''}" data-period="quarter">${L('Сезон', 'Mavsum')}</button><button class="${rState.period === 'year' ? 'on' : ''}" data-period="year">${L('Год', 'Yil')}</button></div>
@@ -1022,6 +1033,7 @@ export const search = {
 // =====================================================================
 export const coach = {
   async render(params, store) {
+    if (!store.user(params[0]) && store.ensureUsers) await store.ensureUsers([params[0]]);
     const c = store.user(params[0]); const me = store.me();
     if (!c) return `<div class="wrap"><div class="card">${L('Тренер не найден', 'Murabbiy topilmadi')}</div></div>`;
     const [st, canRev] = await Promise.all([store.coachStats(c.id), store.canReview(c.id)]);
@@ -1205,19 +1217,136 @@ export const newsItem = {
 };
 
 // =====================================================================
+// Support: player ↔ administration
+// =====================================================================
+export const support = {
+  async render(_, store) {
+    const [msgs] = await Promise.all([store.supportMine(), store.supportRead().catch(() => {})]);
+    return `<div class="pagehead">${back('#/profile', true)}<h1 class="title" style="font-size:22px">${L('Администрация', 'Ma’muriyat')}</h1></div>
+    <div class="wrap">${chatHtml(msgs, false)}
+      <form id="supSend" class="card"><label class="f" for="supMsg" style="margin-top:0">${L('Сообщение', 'Xabar')}</label>
+        <textarea id="supMsg" class="input" rows="3" maxlength="2000" required placeholder="${L('Вопрос, предложение, жалоба на игрока (укажите его ID)…', 'Savol, taklif, o‘yinchi ustidan shikoyat (ID sini yozing)…')}"></textarea>
+        <button class="btn ball block mt">${L('Отправить', 'Yuborish')}</button></form>
+      <div class="muted small">${L('Ответ придёт сюда, а на главной появится уведомление.', 'Javob shu yerga keladi, asosiy sahifada xabar paydo bo‘ladi.')}</div></div>`;
+  },
+  mount(root, _, store) {
+    root.querySelector('#supSend').addEventListener('submit', (e) => { e.preventDefault(); const t = root.querySelector('#supMsg').value.trim(); if (!t) return;
+      act(e.submitter, async () => { await store.supportSend(t); toast(L('Отправлено администрации', 'Ma’muriyatga yuborildi')); rerender(); }); });
+  },
+};
+
+// =====================================================================
 // Admin
 // =====================================================================
+// Admin state: chosen region ('' = the whole country), list filters and page
+const aState = { region: '', role: 'player', q: '', filter: '', page: 0 };
+const PAGE = 50;
+const regionSelect = (id, val, all = true) => `<select class="input" id="${id}" aria-label="${L('Область', 'Viloyat')}">${all ? `<option value="">${L('Вся страна', 'Butun mamlakat')}</option>` : ''}${REGIONS.map((r) => `<option value="${r.code}" ${val === r.code ? 'selected' : ''}>${esc(regionShort(r.code))}</option>`).join('')}</select>`;
+const banText = (u) => banned(u) ? `${new Date(u.bannedUntil).getFullYear() > new Date().getFullYear() + 50 ? L('заблокирован навсегда', 'butunlay bloklangan') : `${L('бан до', 'blok')} ${fmtDate(u.bannedUntil)}`}${u.banReason ? ' · ' + esc(u.banReason) : ''}` : '';
+// Block a player: reason + term (1 day … forever)
+export function banSheet(store, u, done) {
+  sheet(`<h2 class="h">${L('Заблокировать', 'Bloklash')}: ${esc(fullName(u))}</h2>
+    <div class="muted">ID ${esc(u.playerNo || '—')} · ${esc(placeText(u))}</div>
+    <label class="f" for="banWhy">${L('Причина (игрок её увидит)', 'Sabab (o‘yinchi ko‘radi)')}</label>
+    <textarea id="banWhy" class="input" maxlength="300" placeholder="${L('Например: оскорбления, фейковые матчи', 'Masalan: haqorat, soxta o‘yinlar')}"></textarea>
+    <div class="grid2 mt">${[[1, L('1 день', '1 kun')], [7, L('7 дней', '7 kun')], [30, L('30 дней', '30 kun')], [36500, L('Навсегда', 'Butunlay')]].map(([d, l]) => `<button class="btn ${d === 36500 ? 'danger' : 'ghost'}" data-days="${d}">${l}</button>`).join('')}</div>
+    <button class="btn ghost block mt" data-close>${L('Отмена', 'Bekor')}</button>`, (el, close) => {
+    el.querySelectorAll('[data-days]').forEach((b) => b.addEventListener('click', () => act(b, async () => {
+      await store.setBan(u.id, +b.dataset.days, el.querySelector('#banWhy').value.trim());
+      close(); toast(L('Игрок заблокирован', 'O‘yinchi bloklandi')); done?.();
+    })));
+  });
+}
+async function unban(store, id) { await store.setBan(id, 0); toast(L('Блокировка снята', 'Blok olib tashlandi')); }
+// Players list → file for Excel (UTF-8 with BOM, «;» as separator)
+async function exportUsers(store) {
+  const rows = await store.adminExport({ region: aState.region, role: aState.role });
+  const head = ['ID', 'Имя', 'Фамилия', 'Роль', 'Область', 'Город/район', 'Телефон', 'Почта', 'Лига', 'Рейтинг', 'Матчи', 'Блокировка', 'Регистрация'];
+  const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = rows.map((r) => [r.player_no, r.first_name, r.last_name, r.role === 'coach' ? 'тренер' : 'игрок', regionShort(r.region) || r.region, r.district,
+    r.phone ? '+' + String(r.phone).replace(/\D/g, '') : '', r.email, r.role === 'coach' ? '' : leagueName(r.league), r.rating, r.matches,
+    r.banned_until && new Date(r.banned_until) > new Date() ? 'до ' + new Date(r.banned_until).toLocaleDateString('ru-RU') : '', r.created_at ? new Date(r.created_at).toLocaleDateString('ru-RU') : ''].map(cell).join(';'));
+  const blob = new Blob(['﻿' + [head.map(cell).join(';'), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `ace-tennis-${aState.region || 'uzbekistan'}-${aState.role || 'all'}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast(L(`Скачано: ${rows.length} чел.`, `Yuklandi: ${rows.length} kishi`));
+}
+// Conversation bubbles (player ↔ administration)
+function chatHtml(msgs, adminView) {
+  return `<div class="card" style="display:flex;flex-direction:column;gap:8px">${msgs.map((m) => { const mine = adminView ? m.fromAdmin : !m.fromAdmin;
+    return `<div style="align-self:${mine ? 'flex-end' : 'flex-start'};max-width:85%;background:${mine ? 'var(--court)' : '#EEF2E8'};color:${mine ? '#fff' : 'inherit'};border-radius:14px;padding:8px 12px">
+      <div class="small strong" style="opacity:.75">${m.fromAdmin ? L('Администрация', 'Ma’muriyat') : adminView ? L('Игрок', 'O‘yinchi') : L('Вы', 'Siz')}</div>
+      <div style="white-space:pre-line;line-height:1.45">${esc(m.text)}</div><div class="small" style="opacity:.6;text-align:right">${fmtDate(m.createdAt, true)}</div></div>`; }).join('')
+    || `<div class="muted">${adminView ? L('Сообщений нет', 'Xabar yo‘q') : L('Напишите вопрос, предложение или жалобу — администратор ответит здесь.', 'Savol, taklif yoki shikoyatingizni yozing — administrator shu yerda javob beradi.')}</div>`}</div>`;
+}
+const userRow = (u) => `<div style="padding:10px 0;border-top:1px solid #E8EDE3">
+  <div class="row" style="gap:10px;align-items:flex-start">${avatar(u, 'sm')}
+    <div class="grow" style="min-width:0"><a href="#/${u.role === 'coach' ? 'coach' : 'profile'}/${u.id}" class="strong" style="color:inherit;text-decoration:none">${esc(fullName(u))}</a>
+      <div class="muted small">ID ${esc(u.playerNo || '—')} · ${esc(placeText(u) || L('область не указана', 'viloyat ko‘rsatilmagan'))}${u.role === 'player' ? ' · ' + leagueName(u.league) + ' · ' + (u.matches || 0) + ' ' + L('матч.', 'o‘yin') : ' · ' + L('тренер', 'murabbiy')}</div>
+      <div class="small">${u.phone ? `<a href="tel:+${esc(String(u.phone).replace(/\D/g, ''))}">${esc(fmtPhone(String(u.phone).replace(/\D/g, '')))}</a>` : ''}${u.phone && u.email ? ' · ' : ''}${u.email ? esc(u.email) : ''}</div>
+      ${banned(u) ? `<div class="tag bad" style="margin-top:4px;text-transform:none">${banText(u)}</div>` : ''}</div></div>
+  <div class="row" style="gap:6px;margin-top:8px;justify-content:flex-end">
+    <a class="btn ghost sm" href="#/admin/support/${u.id}">${L('Написать', 'Yozish')}</a>
+    ${banned(u) ? `<button class="btn sm" data-unban="${u.id}">${L('Снять блок', 'Blokdan chiqarish')}</button>` : `<button class="btn danger sm" data-banu="${u.id}">${L('Заблокировать', 'Bloklash')}</button>`}</div></div>`;
+
 export const admin = {
   async render(params, store) {
     const tab = params[0] || 'overview';
-    const tabs = [['overview', L('Обзор', 'Umumiy')], ['complaints', L('Жалобы', 'Shikoyatlar')], ['tournaments', L('Турниры', 'Turnirlar')], ['coaches', L('Заявки тренеров', 'Murabbiy arizalari')], ['news', L('Новости', 'Yangiliklar')], ['users', L('Люди', 'Odamlar')]];
+    const s0 = await store.stats('');
+    const tabs = [['overview', L('Обзор', 'Umumiy')], ['support', L('Обращения', 'Murojaatlar'), s0.support], ['users', L('Люди', 'Odamlar')],
+      ['complaints', L('Жалобы', 'Shikoyatlar'), s0.openComplaints + s0.disputes], ['coaches', L('Тренеры', 'Murabbiylar'), s0.coachRequests],
+      ['tournaments', L('Турниры', 'Turnirlar')], ['news', L('Новости', 'Yangiliklar')]];
     const head = `<div class="hero"><div class="topbar"><span class="brand">${logo(30)} ${L('Админ', 'Admin')}</span><button class="iconbtn" data-logout aria-label="${L('Выйти', 'Chiqish')}">${icon.close}</button></div></div>
-      <div class="wrap" style="padding-bottom:0"><div class="chips scroll">${tabs.map(([k, l]) => `<a class="chip ${(tab === k || (k === 'users' && tab === 'coachlist')) ? 'on' : ''}" style="display:inline-flex;align-items:center;text-decoration:none;${(tab === k || (k === 'users' && tab === 'coachlist')) ? '' : 'color:inherit'}" href="#/admin/${k}">${l}</a>`).join('')}</div></div>`;
+      <div class="wrap" style="padding-bottom:0"><div class="chips scroll">${tabs.map(([k, l, n]) => `<a class="chip ${tab === k ? 'on' : ''}" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;${tab === k ? '' : 'color:inherit'}" href="#/admin/${k}">${l}${n ? `<span class="tag bad" style="padding:1px 7px">${n}</span>` : ''}</a>`).join('')}</div></div>`;
     let body = '';
     if (tab === 'overview') {
-      const [s, cs, ds, crs] = await Promise.all([store.stats(), store.complaints(), store.disputes(), store.coachRequests ? store.coachRequests() : []]);
-      const newReq = crs.filter((r) => r.status === 'new').length;
-      body = `<div class="grid2">${[[s.users, L('игроков', 'o‘yinchi')], [s.coaches, L('тренеров', 'murabbiy')], [s.matchesWeek, L('матчей за неделю', 'haftalik o‘yin')], [s.trainingsWeek, L('тренировок за неделю', 'haftalik mashg‘ulot')], [s.activePlayers, L('активных за 30 дней', '30 kunda faol')], [cs.filter((c) => c.status === 'open').length + ds.length, L('ждут решения', 'qaror kutmoqda')], [newReq, L('заявок тренеров', 'murabbiy arizasi')]].map(([n, l], i) => `<a class="card" href="${['#/admin/users', '#/admin/coachlist', '', '', '', '#/admin/complaints', '#/admin/coaches'][i] || '#/admin'}" style="text-decoration:none;color:inherit"><div class="num" style="font-size:30px">${n}</div><div class="muted">${l}${[0, 1, 5, 6].includes(i) ? ' →' : ''}</div></a>`).join('')}</div>`;
+      const st = aState.region ? await store.stats(aState.region) : s0;
+      const tile = (n, label, href) => `<a class="card" href="${href}" style="text-decoration:none;color:inherit;margin:0"><div class="num" style="font-size:30px">${fmtNum(n || 0)}</div><div class="muted">${label}${href !== '#/admin' ? ' →' : ''}</div></a>`;
+      const todo = [[s0.support, L('обращений без ответа', 'javobsiz murojaat'), '#/admin/support'], [s0.openComplaints + s0.disputes, L('жалоб и споров', 'shikoyat va nizo'), '#/admin/complaints'], [s0.coachRequests, L('заявок тренеров', 'murabbiy arizasi'), '#/admin/coaches']].filter(([n]) => n > 0);
+      const byR = Object.entries(s0.byRegion || {}).sort((a, b) => b[1] - a[1]);
+      body = `${todo.length ? `<div class="card hl"><h2 class="h">${L('Ждут вас', 'Sizni kutmoqda')}</h2>${todo.map(([n, l, h]) => `<a href="${h}" class="kv" style="text-decoration:none;color:inherit"><span>${l}</span><span class="tag bad">${n}</span></a>`).join('')}</div>` : ''}
+        ${regionSelect('aRegion', aState.region)}
+        <div class="grid2" style="gap:10px">
+          ${tile(st.players, L('игроков', 'o‘yinchi'), '#/admin/users')}${tile(st.coaches, L('тренеров', 'murabbiy'), '#/admin/users')}
+          ${tile(st.newWeek, L('новых за неделю', 'haftada yangi'), '#/admin')}${tile(st.active30, L('активных за 30 дней', '30 kunda faol'), '#/admin')}
+          ${tile(st.matchesWeek, L('матчей за неделю', 'haftalik o‘yin'), '#/admin')}${tile(st.trainingsWeek, L('тренировок за неделю', 'haftalik mashg‘ulot'), '#/admin')}
+          ${tile(st.banned, L('заблокировано', 'bloklangan'), '#/admin/banned')}
+        </div>
+        <div class="card"><h2 class="h">${L('Люди по областям', 'Viloyatlar bo‘yicha')}</h2>
+          ${byR.map(([r, n]) => `<button class="kv" data-goregion="${r === '-' ? '' : r}" style="width:100%;background:none;border:0;border-top:1px solid #E8EDE3;font:inherit;color:inherit;cursor:pointer;min-height:44px"><span>${r === '-' ? L('Анкета не заполнена', 'Anketa to‘ldirilmagan') : esc(regionShort(r))}</span><span class="strong">${fmtNum(n)} →</span></button>`).join('') || `<div class="muted">${L('Пока никого нет', 'Hozircha hech kim yo‘q')}</div>`}</div>`;
+    }
+    if (tab === 'support') {
+      const userId = params[1];
+      if (userId) {
+        const [msgs] = await Promise.all([store.supportThread(userId), store.supportRead(userId).catch(() => {})]);
+        const u = store.user(userId) || { id: userId };
+        body = `<div class="card"><div class="row" style="gap:10px">${avatar(u)}<div class="grow"><a class="strong" href="#/${u.role === 'coach' ? 'coach' : 'profile'}/${u.id}" style="color:inherit">${esc(fullName(u))}</a>
+            <div class="muted small">ID ${esc(u.playerNo || '—')} · ${esc(placeText(u))}</div>${banned(u) ? `<div class="tag bad mt" style="text-transform:none">${banText(u)}</div>` : ''}</div>
+            ${banned(u) ? `<button class="btn sm" data-unban="${u.id}">${L('Снять блок', 'Blokdan chiqarish')}</button>` : `<button class="btn danger sm" data-banu="${u.id}">${L('Блок', 'Blok')}</button>`}</div></div>
+          ${chatHtml(msgs, true)}
+          <form id="supReply" class="card"><label class="f" for="supText" style="margin-top:0">${L('Ответ', 'Javob')}</label><textarea id="supText" class="input" rows="3" maxlength="2000" required></textarea>
+            <div class="grid2 mt"><a class="btn ghost" href="#/admin/support">${L('Назад', 'Orqaga')}</a><button class="btn ball">${L('Отправить', 'Yuborish')}</button></div></form>`;
+      } else {
+        const ts = await store.supportThreads();
+        body = `<div class="muted">${L('Сообщения игроков и тренеров администрации. Без ответа — сверху.', 'O‘yinchi va murabbiylarning xabarlari. Javobsizlari tepada.')}</div>
+          <div class="card" style="padding:4px 16px">${ts.map((t) => { const u = store.user(t.userId) || {};
+            return `<a href="#/admin/support/${t.userId}" class="row" style="gap:10px;padding:12px 0;border-top:1px solid #E8EDE3;text-decoration:none;color:inherit">${avatar(u, 'sm')}<div class="grow" style="min-width:0"><div class="row between"><span class="strong ellipsis">${esc(fullName(u))}</span><span class="muted small">${fmtDate(t.lastAt, true)}</span></div>
+              <div class="muted small ellipsis">${t.lastFromAdmin ? L('Вы: ', 'Siz: ') : ''}${esc(t.lastText)}</div></div>${t.unread ? `<span class="tag bad">${t.unread}</span>` : ''}</a>`; }).join('') || `<div class="empty">${L('Обращений пока нет', 'Hozircha murojaat yo‘q')}</div>`}</div>`;
+      }
+    }
+    if (tab === 'banned') { aState.filter = 'banned'; aState.page = 0; setTimeout(() => go('#/admin/users'), 0); return ''; }
+    if (tab === 'users') {
+      const { total, rows } = await store.adminUsers({ region: aState.region, role: aState.role, q: aState.q, filter: aState.filter, offset: aState.page * PAGE, limit: PAGE });
+      const pages = Math.max(1, Math.ceil(total / PAGE));
+      body = `${regionSelect('aRegion', aState.region)}
+        <div class="seg"><button class="${aState.role === 'player' ? 'on' : ''}" data-arole="player">${L('Игроки', 'O‘yinchilar')}</button><button class="${aState.role === 'coach' ? 'on' : ''}" data-arole="coach">${L('Тренеры', 'Murabbiylar')}</button><button class="${aState.role === '' ? 'on' : ''}" data-arole="">${L('Все', 'Barchasi')}</button></div>
+        <form id="aSearch" class="row" style="gap:8px;align-items:stretch"><input id="aQ" class="input grow" style="margin:0" value="${esc(aState.q)}" placeholder="${L('Имя, ID, телефон или почта', 'Ism, ID, telefon yoki pochta')}" enterkeyhint="search" aria-label="${L('Поиск', 'Qidiruv')}"><button class="btn ghost sm" style="height:auto">${L('Найти', 'Topish')}</button></form>
+        <div class="row between" style="gap:8px;flex-wrap:wrap"><div class="chips"><button class="chip ${aState.filter === '' ? 'on' : ''}" data-afilter="">${L('Все', 'Barchasi')}</button><button class="chip ${aState.filter === 'banned' ? 'on' : ''}" data-afilter="banned">${L('Заблокированные', 'Bloklanganlar')}</button></div>
+          <button class="btn ghost sm" data-export>${L('Скачать список (Excel)', 'Ro‘yxatni yuklab olish (Excel)')}</button></div>
+        <div class="muted">${L('Найдено', 'Topildi')}: <b>${fmtNum(total)}</b>${pages > 1 ? ` · ${L('стр.', 'bet')} ${aState.page + 1}/${pages}` : ''}</div>
+        <div class="card" style="padding:4px 16px">${rows.map(userRow).join('') || `<div class="empty">${L('Никого не нашли', 'Hech kim topilmadi')}</div>`}</div>
+        ${pages > 1 ? `<div class="grid2"><button class="btn ghost" data-apage="-1" ${aState.page ? '' : 'disabled'}>← ${L('Назад', 'Orqaga')}</button><button class="btn ghost" data-apage="1" ${aState.page + 1 < pages ? '' : 'disabled'}>${L('Дальше', 'Keyingi')} →</button></div>` : ''}`;
     }
     if (tab === 'complaints') {
       const cs = await store.complaints(); const ds = await store.disputes();
@@ -1226,9 +1355,12 @@ export const admin = {
         <div class="muted small mt">${L('Принятая жалоба = оценка Fair Play 1★. 2 за месяц — бан 7 дней, 4 — 30 дней.', 'Qabul qilingan shikoyat = Fair Play 1★. Oyiga 2 ta — 7 kun, 4 ta — 30 kun blok.')}</div></div>`;
     }
     if (tab === 'coaches') {
+      const inviteForm = `<form class="card" id="inv"><h2 class="h">${L('Пригласить тренера', 'Murabbiyni taklif qilish')}</h2><div class="muted">${L('После личной встречи. Тренер войдёт по этому номеру и сразу получит роль тренера.', 'Shaxsiy uchrashuvdan so‘ng. Murabbiy shu raqam bilan kiradi.')}</div>
+        <div class="grid2"><div><label class="f" for="if">${L('Имя', 'Ism')}</label><input class="input" id="if" required></div><div><label class="f" for="il">${L('Фамилия', 'Familiya')}</label><input class="input" id="il" required></div></div>
+        <label class="f" for="ip">${L('Телефон', 'Telefon')}</label><input class="input" id="ip" type="tel" value="+998" required><button class="btn ball block mt">${L('Пригласить', 'Taklif qilish')}</button></form>`;
       const rs = await store.coachRequests();
       const st = { new: [L('новая', 'yangi'), 'warn'], approved: [L('одобрена', 'tasdiqlandi'), 'ok'], rejected: [L('отклонена', 'rad etildi'), 'bad'] };
-      body = `<div class="muted">${L('Позвоните тренеру и после разговора нажмите «Одобрить». Тренер регистрируется по почте и указывает в анкете этот номер — роль тренера включится сама.', 'Murabbiyga qo‘ng‘iroq qiling va «Tasdiqlash»ni bosing. Murabbiy anketada shu raqamni kiritsa, murabbiy roli o‘zi yoqiladi.')}</div>
+      body = `${inviteForm}<div class="muted">${L('Позвоните тренеру и после разговора нажмите «Одобрить». Тренер регистрируется по почте и указывает в анкете этот номер — роль тренера включится сама.', 'Murabbiyga qo‘ng‘iroq qiling va «Tasdiqlash»ni bosing. Murabbiy anketada shu raqamni kiritsa, murabbiy roli o‘zi yoqiladi.')}</div>
         ${rs.map((r) => `<div class="card"><div class="row between"><span class="strong">${esc(r.firstName)} ${esc(r.lastName)}</span><span class="tag ${st[r.status][1]}">${st[r.status][0]}</span></div>
           <div class="muted">${yearsText(r.experience, 'exp')} · ${fmtDate(r.createdAt, true)}</div>
           ${r.about ? `<div class="mt">${esc(r.about)}</div>` : ''}
@@ -1236,14 +1368,14 @@ export const admin = {
           ${r.status === 'new' ? `<div class="grid2 mt"><button class="btn sm" data-creq="${r.id}:1">${L('Одобрить', 'Tasdiqlash')}</button><button class="btn ghost sm" data-creq="${r.id}:0">${L('Отклонить', 'Rad etish')}</button></div>` : ''}</div>`).join('') || `<div class="card"><div class="muted">${L('Заявок пока нет', 'Hozircha ariza yo‘q')}</div></div>`}`;
     }
     if (tab === 'tournaments') {
-      const ts = await store.tournaments();
+      const ts = (await store.tournaments()).filter((t) => !aState.region || (t.region || 'namangan') === aState.region);
       body = `<form class="card" id="tnew"><h2 class="h">${L('Новый турнир', 'Yangi turnir')}</h2>
         <label class="f" for="tn">${L('Название', 'Nomi')}</label><input class="input" id="tn" required>
-        <label class="f" for="trg">${L('Область', 'Viloyat')}</label><select class="input" id="trg">${REGIONS.map((r) => `<option value="${r.code}">${esc(L(r.ru, r.uz))}</option>`).join('')}</select>
+        <label class="f" for="trg">${L('Область', 'Viloyat')}</label><select class="input" id="trg">${REGIONS.map((r) => `<option value="${r.code}" ${r.code === aState.region ? 'selected' : ''}>${esc(L(r.ru, r.uz))}</option>`).join('')}</select>
         <div class="grid2"><div><label class="f" for="tl">${L('Лига', 'Liga')}</label><select class="input" id="tl">${LEAGUES.map((l) => `<option value="${l.id}">${L(l.ru, l.uz)}</option>`).join('')}</select></div><div><label class="f" for="ts">${L('Спонсор', 'Homiy')}</label><input class="input" id="ts"></div></div>
         <div class="grid2"><div><label class="f" for="t1">${L('Начало', 'Boshlanish')}</label><input class="input" type="date" id="t1" required></div><div><label class="f" for="t2">${L('Конец', 'Tugash')}</label><input class="input" type="date" id="t2" required></div></div>
         <button class="btn ball block mt">${L('Создать', 'Yaratish')}</button></form>
-        ${ts.map((t) => `<div class="card"><div class="row between"><span class="strong">${esc(t.name)}</span><span class="tag ${tStatus(t.status)[1]}">${tStatus(t.status)[0]}</span></div><div class="muted">${leagueName(t.league)} · ${isSeasonT(t) ? L('турнир сезона, топ-4', 'mavsum turniri, top-4') : `${t.entries.filter((e) => e.status === 'approved').length}/8`}</div>
+        ${ts.map((t) => `<div class="card"><div class="row between"><span class="strong">${esc(t.name)}</span><span class="tag ${tStatus(t.status)[1]}">${tStatus(t.status)[0]}</span></div><div class="muted">${esc(regionShort(t.region || 'namangan'))} · ${leagueName(t.league)} · ${isSeasonT(t) ? L('турнир сезона, топ-4', 'mavsum turniri, top-4') : `${t.entries.filter((e) => e.status === 'approved').length}/8`}</div>
           ${t.status === 'registration' ? `${t.entries.map((e) => `<div class="kv"><span>${esc(fullName(store.user(e.userId)))}</span>${e.status === 'pending' ? `<span class="row" style="gap:6px"><button class="btn sm" data-ent="${t.id}:${e.userId}:1">✓</button><button class="btn ghost sm" data-ent="${t.id}:${e.userId}:0">✕</button></span>` : `<span class="tag ${e.status === 'approved' ? 'ok' : 'bad'}">${e.status === 'approved' ? L('утв.', 'tasd.') : L('откл.', 'rad')}</span>`}</div>`).join('')}
           <button class="btn block mt" data-start="${t.id}">${L('Запустить турнир (сетка)', 'Turnirni boshlash')}</button>` : `<a class="btn ghost block mt" href="#/tournament/${t.id}">${L('Открыть сетку', 'To‘rni ochish')}</a>`}</div>`).join('')}`;
     }
@@ -1260,19 +1392,6 @@ export const admin = {
           <div class="muted small">${L('Итоги турниров и сезонов публикуются сами. Мировые новости обновляются каждые 30 минут и хранятся 7 дней, автоматические местные — 1 год, ваши — пока не удалите.', 'Turnir va mavsum natijalari o‘zi e’lon qilinadi. Jahon yangiliklari har 30 daqiqada yangilanadi va 7 kun saqlanadi, avtomatik mahalliylar — 1 yil, siznikilar — o‘chirmaguningizcha.')}</div>
           <div class="list mt">${ns.map((n) => `<div class="row between" style="gap:10px"><div class="grow" style="min-width:0"><a href="#/news/${n.id}" class="strong ellipsis" style="display:block;color:inherit;text-decoration:none">${esc(n.title)}</a><div class="muted small">${fmtDate(n.createdAt)}${n.auto ? ' · ' + L('авто', 'avto') : ''}</div></div><button class="btn ghost sm" data-delnews="${n.id}">${L('Удалить', 'O‘chirish')}</button></div>`).join('') || `<div class="muted">${L('Новостей пока нет', 'Hali yangilik yo‘q')}</div>`}</div></div>`;
     }
-    if (tab === 'users' || tab === 'coachlist') {
-      const coachesOnly = tab === 'coachlist';
-      const [players, coachesAll, contacts] = await Promise.all([store.listUsers({ role: 'player' }), store.listUsers({ role: 'coach' }), store.adminContacts ? store.adminContacts().catch(() => ({})) : {}]);
-      const us = (coachesOnly ? coachesAll : players).sort((a, b) => fullName(a).localeCompare(fullName(b)));
-      const contact = (u) => { const c = contacts[u.id] || {}; const ph = String(c.phone || u.phone || '').replace(/\D/g, '');
-        return `<div class="muted small" style="margin:2px 0 0 40px">${[u.playerNo ? 'ID ' + u.playerNo : '', regionShort(regionOf(u))].filter(Boolean).map(esc).join(' · ')}${ph || c.email ? ' · ' : ''}${ph ? `<a href="tel:+${esc(ph)}">${esc(fmtPhone(ph))}</a>` : ''}${ph && c.email ? ' · ' : ''}${c.email ? esc(c.email) : ''}</div>`; };
-      const list = `<div class="seg"><a class="${coachesOnly ? '' : 'on'}" href="#/admin/users" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:inherit;font-weight:800;border-radius:11px;height:42px;${coachesOnly ? '' : 'background:var(--card)'}">${L('Игроки', 'O‘yinchilar')} · ${players.length}</a><a class="${coachesOnly ? 'on' : ''}" href="#/admin/coachlist" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:inherit;font-weight:800;border-radius:11px;height:42px;${coachesOnly ? 'background:var(--card)' : ''}">${L('Тренеры', 'Murabbiylar')} · ${coachesAll.length}</a></div>
-        <div class="card">${us.map((u) => `<div style="padding:8px 0;border-top:1px solid #E8EDE3"><div class="kv" style="min-height:40px"><a href="#/${u.role === 'coach' ? 'coach' : 'profile'}/${u.id}" class="row" style="gap:8px;min-width:0;text-decoration:none;color:inherit">${avatar(u, 'sm')}<span class="ellipsis">${esc(fullName(u))}${banned(u) ? ` <span class="tag bad">${L('бан до', 'blok')} ${fmtDate(u.bannedUntil)}</span>` : ''}</span></a>${banned(u) ? `<button class="btn ghost sm" data-ban="${u.id}:0">${L('Снять', 'Olib tashlash')}</button>` : `<button class="btn danger sm" data-ban="${u.id}:7">${L('Бан 7 дн.', 'Blok 7 kun')}</button>`}</div>${contact(u)}</div>`).join('') || `<div class="muted">${L('Пока никого нет', 'Hozircha hech kim yo‘q')}</div>`}</div>`;
-      body = `<form class="card" id="inv"><h2 class="h">${L('Пригласить тренера', 'Murabbiyni taklif qilish')}</h2><div class="muted">${L('После личной встречи. Тренер войдёт по этому номеру и сразу получит роль тренера.', 'Shaxsiy uchrashuvdan so‘ng. Murabbiy shu raqam bilan kiradi.')}</div>
-        <div class="grid2"><div><label class="f" for="if">${L('Имя', 'Ism')}</label><input class="input" id="if" required></div><div><label class="f" for="il">${L('Фамилия', 'Familiya')}</label><input class="input" id="il" required></div></div>
-        <label class="f" for="ip">${L('Телефон', 'Telefon')}</label><input class="input" id="ip" type="tel" value="+998" required><button class="btn ball block mt">${L('Пригласить', 'Taklif qilish')}</button></form>
-        ${list}`;
-    }
     return `${head}<div class="wrap">${body}</div>`;
   },
   mount(root, params, store) {
@@ -1285,7 +1404,17 @@ export const admin = {
       const [id, k] = b.dataset.creq.split(':'); await store.resolveCoachRequest(id, k === '1');
       toast(k === '1' ? L('Одобрено. Тренер получит роль после регистрации с этим номером', 'Tasdiqlandi') : L('Заявка отклонена', 'Ariza rad etildi')); rerender();
     })));
-    root.querySelectorAll('[data-ban]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [u, d] = b.dataset.ban.split(':'); await store.setBan(u, +d); rerender(); })));
+    root.querySelectorAll('[data-banu]').forEach((b) => b.addEventListener('click', () => { const u = store.user(b.dataset.banu) || { id: b.dataset.banu }; banSheet(store, u, rerender); }));
+    root.querySelectorAll('[data-unban]').forEach((b) => b.addEventListener('click', () => act(b, async () => { await unban(store, b.dataset.unban); rerender(); })));
+    root.querySelector('#aRegion')?.addEventListener('change', (e) => { aState.region = e.target.value; aState.page = 0; rerender(); });
+    root.querySelectorAll('[data-goregion]').forEach((b) => b.addEventListener('click', () => { aState.region = b.dataset.goregion; aState.page = 0; aState.filter = ''; go('#/admin/users'); }));
+    root.querySelectorAll('[data-arole]').forEach((b) => b.addEventListener('click', () => { aState.role = b.dataset.arole; aState.page = 0; rerender(); }));
+    root.querySelectorAll('[data-afilter]').forEach((b) => b.addEventListener('click', () => { aState.filter = b.dataset.afilter; aState.page = 0; rerender(); }));
+    root.querySelectorAll('[data-apage]').forEach((b) => b.addEventListener('click', () => { aState.page = Math.max(0, aState.page + +b.dataset.apage); rerender(); window.scrollTo(0, 0); }));
+    root.querySelector('#aSearch')?.addEventListener('submit', (e) => { e.preventDefault(); aState.q = root.querySelector('#aQ').value.trim(); aState.page = 0; rerender(); });
+    root.querySelector('[data-export]')?.addEventListener('click', (e) => act(e.currentTarget, () => exportUsers(store)));
+    root.querySelector('#supReply')?.addEventListener('submit', (e) => { e.preventDefault(); const t = root.querySelector('#supText').value.trim(); if (!t) return;
+      act(e.submitter, async () => { await store.supportReply(params[1], t); toast(L('Ответ отправлен', 'Javob yuborildi')); rerender(); }); });
     root.querySelector('#tnew')?.addEventListener('submit', (e) => { e.preventDefault(); act(e.submitter, async () => {
       const v = (id) => root.querySelector('#' + id).value;
       await store.createTournament({ name: v('tn'), league: v('tl'), region: v('trg'), sponsor: v('ts'), startsAt: new Date(v('t1')).toISOString(), endsAt: new Date(v('t2')).toISOString() });

@@ -9,7 +9,7 @@ const toUser = (r) => r && ({
   form: r.form, league: r.league, pointsQ: r.points_q, pointsY: r.points_y, fpSum: Number(r.fp_sum),
   fpCount: r.fp_count, bannedUntil: r.banned_until, top10Days: r.top10_days, top1Days: r.top1_days,
   coach: r.role === 'coach' ? { verified: r.coach_verified, price: null, specialization: [], worksWith: '', experience: r.years, ...(r.coach || {}) } : null,
-  lang: r.lang, createdAt: r.created_at, termsVer: r.terms_ver || '', playerNo: r.player_no || null,
+  lang: r.lang, createdAt: r.created_at, termsVer: r.terms_ver || '', playerNo: r.player_no || null, banReason: r.ban_reason || '', updatedAt: r.updated_at || null,
 });
 const fromUser = (p) => {
   const map = { firstName: 'first_name', lastName: 'last_name', photo: 'photo_url', gender: 'gender', birthYear: 'birth_year',
@@ -37,7 +37,7 @@ const toTournament = (r, entries = []) => ({
   entries: entries.filter((e) => e.tournament_id === r.id).map((e) => ({ userId: e.user_id, status: e.status })),
 });
 // Phone numbers are not readable by other users (supabase/update-02.sql)
-const PROFILE_COLS = 'id,role,first_name,last_name,photo_url,gender,birth_year,region,district,years,self_level,hand,availability,rating,matches,wins,form,league,points_q,points_y,q_key,y_key,fp_sum,fp_count,banned_until,top10_days,top1_days,coach_verified,coach,lang,created_at,tg_username,terms_ver,player_no';
+const PROFILE_COLS = 'id,role,first_name,last_name,photo_url,gender,birth_year,region,district,years,self_level,hand,availability,rating,matches,wins,form,league,points_q,points_y,q_key,y_key,fp_sum,fp_count,banned_until,top10_days,top1_days,coach_verified,coach,lang,created_at,tg_username,terms_ver,player_no,ban_reason,updated_at';
 // Supabase auth messages → Russian
 function authError(m = '') {
   if (/invalid login credentials/i.test(m)) return 'Неверная почта или пароль';
@@ -58,11 +58,12 @@ const check = ({ data, error }) => { if (error) throw new Error(error.message); 
 // Speed: read queries are cached for a short time, so going back and forth between screens is instant.
 // Any change (match, challenge, profile…) clears the cache.
 const QUERY_TTL = 30e3;      // lists: ranking, news, tournaments…
-const USERS_TTL = 60e3;      // all profiles
+const USERS_TTL = 3 * 60e3;  // profiles of my region: only changes are downloaded (delta)
+const FULL_TTL = 24 * 3600e3; // once a day the region list is downloaded in full
 const PENDING_TTL = 30e3;    // "waiting for my confirmation" gate
-const CACHED = ['adminContacts', 'coachRequests', 'contacts', 'ranking', 'leaders', 'fairplayRanking', 'achievements', 'suggestOpponent', 'challenges', 'outgoing', 'history',
+const CACHED = ['adminContacts', 'adminUsers', 'supportThreads', 'supportThread', 'supportMine', 'supportUnread', 'coachRequests', 'contacts', 'ranking', 'leaders', 'fairplayRanking', 'achievements', 'suggestOpponent', 'challenges', 'outgoing', 'history',
   'coachStats', 'canReview', 'coachRanking', 'ratedFairplay', 'complaints', 'disputes', 'tournaments', 'tournament', 'news', 'worldNews', 'stats'];
-const MUTATIONS = ['resolveCoachRequest', 'sharePhone', 'saveProfile', 'createMatch', 'createTraining', 'confirm', 'dispute', 'cancelOwn', 'createChallenge', 'answerChallenge',
+const MUTATIONS = ['supportSend', 'supportReply', 'supportRead', 'resolveCoachRequest', 'sharePhone', 'saveProfile', 'createMatch', 'createTraining', 'confirm', 'dispute', 'cancelOwn', 'createChallenge', 'answerChallenge',
   'addReview', 'rateFairplay', 'complain', 'resolveComplaint', 'resolveDispute', 'setBan', 'applyTournament', 'createTournament',
   'approveEntry', 'startTournament', 'createTournamentMatch', 'addNews', 'deleteNews', 'addComment', 'hideComment', 'inviteCoach'];
 // These change ratings / profiles, so the profile list is reloaded too
@@ -79,12 +80,12 @@ const snapRead = () => { try { return JSON.parse(localStorage.getItem(SNAP_KEY) 
 const snapClear = () => { try { localStorage.removeItem(SNAP_KEY); } catch { /* ignore */ } };
 const LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 const SYNC = new Set(['constructor', 'init', 'refresh', 'memo', 'invalidate', 'me', 'user', 'uid', 'pendingPeek', 'telegramNonce',
-  'telegramPending', 'telegramClicked', 'notify', 'changed', 'saveSnap', 'listUsers', 'newsItem', 'fairplayRanking']);
+  'telegramPending', 'telegramClicked', 'notify', 'changed', 'saveSnap', 'listUsers', 'newsItem', 'setUsers', 'addUsers', 'myRegion']);
 
 export class SupabaseStore {
   constructor(url, key) {
-    this.mode = 'live'; this.url = url; this.key = key; this.users = []; this.meCache = null;
-    this.usersAt = 0; this.cache = new Map(); this.pendingLast = null;
+    this.mode = 'live'; this.url = url; this.key = key; this.users = []; this.byId = new Map(); this.meCache = null;
+    this.usersAt = 0; this.syncAt = null; this.fullAt = 0; this.syncRegion = null; this.cache = new Map(); this.pendingLast = null;
     // Load the Supabase library right away, in parallel with everything else
     this.ready = import(LIB).then(({ createClient }) => { this.sb = createClient(url, key, { auth: { persistSession: true } }); });
     // Every request waits for the library (only the very first moment after start)
@@ -143,17 +144,19 @@ export class SupabaseStore {
       if (!this.meCache) return;
       const q = {};
       for (const [k, e] of this.cache) if (e.done) q[k] = e.v;
-      const snap = { v: 1, meId: this.meCache.id, phone: this.meCache.phone || '', users: this.users, q, pending: this.pendingLast?.v || null };
+      const snap = { v: 2, meId: this.meCache.id, phone: this.meCache.phone || '', users: this.users, q, pending: this.pendingLast?.v || null,
+        syncAt: this.syncAt, fullAt: this.fullAt, syncRegion: this.syncRegion };
       try { localStorage.setItem(SNAP_KEY, JSON.stringify(snap)); } catch { try { localStorage.setItem(SNAP_KEY, JSON.stringify({ ...snap, q: {} })); } catch { /* full */ } }
     }, 800);
   }
 
   async init() {
     const snap = snapRead();
-    if (snap?.v === 1 && snap.meId && snap.users?.length) {
+    if (snap?.v === 2 && snap.meId && snap.users?.length) {
       // Open instantly with the saved data
-      this.users = snap.users;
-      this.meCache = this.users.find((u) => u.id === snap.meId) || null;
+      this.setUsers(snap.users);
+      this.syncAt = snap.syncAt || null; this.fullAt = snap.fullAt || 0; this.syncRegion = snap.syncRegion ?? null;
+      this.meCache = this.byId.get(snap.meId) || null;
       if (this.meCache) {
         this.meCache.phone = snap.phone;
         for (const [k, v] of Object.entries(snap.q || {})) this.cache.set(k, { t: 0, p: Promise.resolve(v), v, done: true });
@@ -162,7 +165,7 @@ export class SupabaseStore {
         this.ready.then(async () => {
           const { data } = await this.sb.auth.getSession();
           if (!data.session || data.session.user.id !== snap.meId) {
-            snapClear(); this.meCache = null; this.users = []; this.invalidate();
+            snapClear(); this.meCache = null; this.setUsers([]); this.syncAt = null; this.fullAt = 0; this.invalidate();
             window.dispatchEvent(new Event('ace:loggedout')); return;
           }
           const before = JSON.stringify(this.users);
@@ -176,34 +179,71 @@ export class SupabaseStore {
     const { data } = await this.sb.auth.getSession();
     if (data.session) await this.refresh();
   }
-  // Loads all profiles (one request) — skipped when fresh, shared when several screens ask at once.
-  // If profiles are already known but old, answers at once and refreshes in the background.
+  // Profiles: only my region is kept on the phone (the country can have tens of thousands of players).
+  // First time — the whole region, page by page; then only the rows changed since the last time (delta).
+  // Players from other regions are loaded one by one when a screen needs them (addUsers / ensureUsers).
+  setUsers(list) { this.users = list; this.byId = new Map(list.map((u) => [u.id, u])); }
+  addUsers(list) {
+    let n = 0;
+    for (const u of list) { if (u) { this.byId.set(u.id, u); n++; } }
+    if (n) this.users = [...this.byId.values()];
+  }
+  myRegion() { return this.meCache?.region || ''; }
+  async ensureUsers(ids) {
+    const miss = [...new Set(ids.filter((id) => id && !this.byId.has(id)))];
+    for (let i = 0; i < miss.length; i += 150) {
+      const rows = check(await this.sb.from('profiles').select(PROFILE_COLS).in('id', miss.slice(i, i + 150)));
+      this.addUsers(rows.map(toUser));
+    }
+  }
   refresh(force = false) {
     if (!force && this.usersAt && Date.now() - this.usersAt < USERS_TTL) return Promise.resolve();
     if (this.refreshing && !force && !this.users.length) return this.refreshing;
     if (!force && this.users.length && this.meCache) {
       if (!this.refreshing) {
-        const before = JSON.stringify(this.users);
-        this.refresh(true).then(() => { if (JSON.stringify(this.users) !== before) this.changed(); }).catch(() => {});
+        const before = this.syncAt + ':' + this.users.length;
+        this.refresh(true).then(() => { if (this.syncAt + ':' + this.users.length !== before) this.changed(); }).catch(() => {});
       }
       return Promise.resolve();
     }
+    // A forced refresh (after my own change) must not reuse a request that started before the change
+    if (this.refreshing) return force ? this.refreshing.catch(() => {}).then(() => this.refresh(true)) : this.refreshing;
     const run = (async () => {
       await this.ready;
       const { data: s } = await this.sb.auth.getSession();
-      if (!s.session) { this.meCache = null; this.users = []; this.usersAt = 0; return; }
-      const [rows, phone] = await Promise.all([this.sb.from('profiles').select(PROFILE_COLS), this.sb.rpc('my_phone')]);
-      this.users = check(rows).map(toUser);
-      this.meCache = this.users.find((u) => u.id === s.session.user.id) || null;
+      if (!s.session) { this.meCache = null; this.setUsers([]); this.usersAt = 0; this.syncAt = null; return; }
+      const myId = s.session.user.id;
+      const [mine, phone] = await Promise.all([this.sb.from('profiles').select(PROFILE_COLS).eq('id', myId).maybeSingle(), this.sb.rpc('my_phone')]);
+      const me = toUser(check(mine));
+      const rg = me?.role === 'admin' ? '' : (me?.region || '');
+      const full = !this.syncAt || this.syncRegion !== rg || Date.now() - this.fullAt > FULL_TTL;
+      let rows = [];
+      if (rg) {
+        const since = full ? null : new Date(new Date(this.syncAt).getTime() - 5000).toISOString();
+        for (let from = 0; ; from += 1000) {
+          let q = this.sb.from('profiles').select(PROFILE_COLS).eq('region', rg);
+          if (since) q = q.gt('updated_at', since);
+          const page = check(await q.order('updated_at').range(from, from + 999));
+          rows = rows.concat(page);
+          if (page.length < 1000) break;
+        }
+      }
+      const list = rows.map(toUser);
+      if (full) { this.setUsers(me ? [me, ...list.filter((u) => u.id !== me.id)] : list); this.fullAt = Date.now(); this.syncRegion = rg; }
+      else this.addUsers(me ? [...list, me] : list);
+      const maxAt = [me, ...list].reduce((m, u) => (u?.updatedAt && u.updatedAt > m ? u.updatedAt : m), this.syncAt || '');
+      this.syncAt = maxAt || new Date().toISOString();
+      this.meCache = this.byId.get(myId) || null;
       if (this.meCache) this.meCache.phone = phone.data || '';
       this.usersAt = Date.now();
       this.saveSnap();
     })();
-    this.refreshing = run.finally(() => { if (this.refreshing === run) this.refreshing = null; });
-    return this.refreshing;
+    const p = run.finally(() => { if (this.refreshing === p) this.refreshing = null; });
+    this.refreshing = p;
+    return p;
   }
   me() { return this.meCache; }
-  user(id) { return this.users.find((u) => u.id === id) || null; }
+  user(id) { return this.byId.get(id) || null; }
   uid() { return this.meCache?.id; }
 
   // ---------- auth ----------
@@ -263,7 +303,7 @@ export class SupabaseStore {
     const rows = check(await this.sb.rpc('admin_contacts')) || [];
     return Object.fromEntries(rows.map((r) => [r.id, { phone: r.phone, email: r.email }]));
   }
-  async signOut() { snapClear(); await this.sb.auth.signOut(); this.meCache = null; this.users = []; this.invalidate(); }
+  async signOut() { snapClear(); await this.sb.auth.signOut(); this.meCache = null; this.setUsers([]); this.syncAt = null; this.fullAt = 0; this.invalidate(); }
 
   // ---------- Telegram bot login ----------
   telegramNonce() {
@@ -296,6 +336,7 @@ export class SupabaseStore {
     if (patch.termsVer) check(await this.sb.rpc('accept_terms', { p_ver: patch.termsVer }));
     const row = fromUser(patch);
     if (Object.keys(row).length) check(await this.sb.from('profiles').update(row).eq('id', this.uid()));
+    if (patch.region !== undefined && patch.region !== this.syncRegion) this.syncAt = null; // new region → load its players
     await this.refresh(true); return this.meCache;
   }
   async uploadPhoto(file) {
@@ -303,7 +344,16 @@ export class SupabaseStore {
     check(await this.sb.storage.from('photos').upload(path, file, { upsert: true, contentType: file.type }));
     return this.sb.storage.from('photos').getPublicUrl(path).data.publicUrl;
   }
-  async listUsers({ role } = {}) { await this.refresh(); return this.users.filter((u) => (role ? u.role === role : u.role !== 'admin') && u.firstName); }
+  // Players of my region (other regions: findByNo / admin lists)
+  async listUsers({ role } = {}) {
+    await this.refresh(); const rg = this.myRegion();
+    return this.users.filter((u) => (role ? u.role === role : u.role !== 'admin') && u.firstName && (!rg || u.region === rg));
+  }
+  async findByNo(no) {
+    const n = Number(String(no || '').replace(/\D/g, '')); if (!n) return null;
+    const row = check(await this.sb.from('profiles').select(PROFILE_COLS).eq('player_no', n).maybeSingle());
+    const u = toUser(row); if (u) this.addUsers([u]); return u;
+  }
 
   // ---------- matches & trainings ----------
   async createMatch(d) {
@@ -329,6 +379,7 @@ export class SupabaseStore {
     ]);
     const ms = check(mr).map(toMatch).filter((m) => (m.teamA.includes(m.createdBy) ? m.teamB : m.teamA).includes(id));
     const ts = check(tr).map(toTraining);
+    await this.ensureUsers([...ms.flatMap((m) => [...m.teamA, ...m.teamB]), ...ts.map((t) => t.playerId)]);
     const v = { matches: ms, trainings: ts, count: ms.length + ts.length };
     this.pendingLast = { t: Date.now(), v }; this.saveSnap();
     return v;
@@ -348,7 +399,9 @@ export class SupabaseStore {
       this.sb.from('matches').select('*').eq('created_by', id).or('status.eq.pending,and(status.eq.cancelled,expired.eq.true,complained.eq.false)'),
       this.sb.from('trainings').select('*').eq('player_id', id).eq('status', 'pending'),
     ]);
-    return { matches: check(mr).map(toMatch), trainings: check(tr).map(toTraining) };
+    const out = { matches: check(mr).map(toMatch), trainings: check(tr).map(toTraining) };
+    await this.ensureUsers([...out.matches.flatMap((m) => [...m.teamA, ...m.teamB]), ...out.trainings.map((t) => t.coachId)]);
+    return out;
   }
   async confirm(kind, id) {
     check(await this.sb.rpc(kind === 'match' ? 'confirm_match' : 'confirm_training', kind === 'match' ? { p_match: id } : { p_training: id }));
@@ -361,23 +414,31 @@ export class SupabaseStore {
       this.sb.from('matches').select('*').eq('status', 'confirmed').or(`team_a.cs.{${userId}},team_b.cs.{${userId}}`).order('played_at', { ascending: false }).limit(50),
       this.sb.from('trainings').select('*').eq('status', 'confirmed').or(`player_id.eq.${userId},coach_id.eq.${userId}`).order('played_at', { ascending: false }).limit(50),
     ]);
-    return { matches: check(mr).map(toMatch), trainings: check(tr).map(toTraining) };
+    const out = { matches: check(mr).map(toMatch), trainings: check(tr).map(toTraining) };
+    await this.ensureUsers([...out.matches.flatMap((m) => [...m.teamA, ...m.teamB]), ...out.trainings.flatMap((t) => [t.playerId, t.coachId])]);
+    return out;
   }
 
   // ---------- rating ----------
   // Leagues are regional: the ranking is always inside one region
   async ranking({ league, period, region }) {
+    if (region === undefined) region = this.myRegion();
     let q = this.sb.from('profiles').select(PROFILE_COLS).gt('matches', 0).neq('role', 'admin');
     if (region) q = q.eq('region', region);
     if (league) q = q.eq('league', league);
     const col = period === 'year' ? 'points_y' : 'points_q';
     const rows = check(await q.order(col, { ascending: false }).order('rating', { ascending: false }).limit(100));
+    this.addUsers(rows.map(toUser));
     return rows.map(toUser).map((u, i) => ({ ...u, place: i + 1, points: period === 'year' ? u.pointsY : u.pointsQ }));
   }
   async leaders(region) {
     const month = new Date(); month.setDate(1); month.setHours(0, 0, 0, 0);
-    const [, mr] = await Promise.all([this.refresh(), this.sb.from('matches').select('team_a,team_b').eq('status', 'confirmed').gte('played_at', month.toISOString())]);
-    const ps = this.users.filter((u) => u.role !== 'admin' && u.matches > 0 && (!region || u.region === region));
+    region = region || this.myRegion();
+    const [, mr] = await Promise.all([this.refresh(), this.sb.from('matches').select('team_a,team_b').eq('status', 'confirmed').gte('played_at', month.toISOString()).limit(5000)]);
+    let ps = this.users.filter((u) => u.role !== 'admin' && u.matches > 0 && (!region || u.region === region));
+    if (region && region !== this.myRegion()) { // the admin looks at another region
+      ps = check(await this.sb.from('profiles').select(PROFILE_COLS).eq('region', region).gt('matches', 0).neq('role', 'admin').order('points_q', { ascending: false }).limit(500)).map(toUser);
+    }
     if (!ps.length) return { top1: null, streak: null, active: null, activeCount: 0 };
     const top1 = [...ps].sort((a, b) => b.top1Days - a.top1Days)[0];
     const streak = [...ps].sort((a, b) => b.form.match(/^В*/)[0].length - a.form.match(/^В*/)[0].length)[0];
@@ -386,10 +447,13 @@ export class SupabaseStore {
     const active = [...ps].sort((a, b) => (cnt[b.id] || 0) - (cnt[a.id] || 0))[0];
     return { top1, streak, active, activeCount: cnt[active.id] || 0 };
   }
-  async fairplayRanking() {
-    await this.refresh();
-    return this.users.filter((u) => u.role !== 'admin' && u.fpCount > 0)
-      .sort((a, b) => fairplay(b.fpSum, b.fpCount) - fairplay(a.fpSum, a.fpCount));
+  async fairplayRanking(region) {
+    region = region ?? this.myRegion();
+    let q = this.sb.from('profiles').select(PROFILE_COLS).gt('fp_count', 0).neq('role', 'admin');
+    if (region) q = q.eq('region', region);
+    const list = check(await q.order('fp_count', { ascending: false }).limit(500)).map(toUser);
+    this.addUsers(list);
+    return list.sort((a, b) => fairplay(b.fpSum, b.fpCount) - fairplay(a.fpSum, a.fpCount));
   }
   async achievements(userId) {
     return check(await this.sb.from('achievements').select('*').eq('user_id', userId).order('created_at', { ascending: false }))
@@ -410,7 +474,10 @@ export class SupabaseStore {
     return c[0]?.u || null;
   }
   async challenges() {
-    return check(await this.sb.from('challenges').select('*').order('at')).map((c) => ({
+    const since = new Date(Date.now() - 60 * 864e5).toISOString(); // older challenges are not shown anywhere
+    const rows = check(await this.sb.from('challenges').select('*').gte('created_at', since).order('at').limit(300));
+    await this.ensureUsers(rows.flatMap((c) => [c.from_id, c.to_id]));
+    return rows.map((c) => ({
       id: c.id, fromId: c.from_id, toId: c.to_id, at: c.at, format: c.format, note: c.note, status: c.status, createdAt: c.created_at,
       shareFrom: !!c.share_from, shareTo: !!c.share_to }));
   }
@@ -436,6 +503,7 @@ export class SupabaseStore {
       this.sb.from('reviews').select('*').eq('coach_id', coachId).order('created_at', { ascending: false }),
     ]);
     const ts = check(tr);
+    await this.ensureUsers(check(rr).map((r) => r.author_id));
     const rv = check(rr).map((r) => ({ id: r.id, coachId: r.coach_id, authorId: r.author_id, stars: Number(r.stars), text: r.text, createdAt: r.created_at }));
     const avg = rv.length ? Math.round((rv.reduce((s, r) => s + r.stars, 0) / rv.length) * 10) / 10 : null;
     return { trainings: ts.length, students: new Set(ts.map((t) => t.player_id)).size, hours: ts.reduce((s, t) => s + Number(t.hours), 0), avg, reviews: rv };
@@ -447,20 +515,12 @@ export class SupabaseStore {
   async addReview(coachId, stars, text) {
     check(await this.sb.from('reviews').upsert({ coach_id: coachId, author_id: this.uid(), stars, text }, { onConflict: 'coach_id,author_id' }));
   }
-  async coachRanking() {
-    // Two requests for all coaches together (instead of two per coach)
-    const [, tr, rr] = await Promise.all([
-      this.refresh(),
-      this.sb.from('trainings').select('coach_id,player_id,hours').eq('status', 'confirmed').not('coach_id', 'is', null),
-      this.sb.from('reviews').select('coach_id,stars'),
-    ]);
-    const ts = check(tr); const rv = check(rr);
-    const out = this.users.filter((u) => u.role === 'coach').map((c) => {
-      const t = ts.filter((x) => x.coach_id === c.id); const r = rv.filter((x) => x.coach_id === c.id);
-      const avg = r.length ? Math.round((r.reduce((s, x) => s + Number(x.stars), 0) / r.length) * 10) / 10 : null;
-      return { ...c, stats: { trainings: t.length, students: new Set(t.map((x) => x.player_id)).size, hours: t.reduce((s, x) => s + Number(x.hours), 0), avg, reviews: [] } };
-    });
-    return out.sort((a, b) => b.stats.students - a.stats.students || b.stats.trainings - a.stats.trainings);
+  // Counted inside the database: one short answer for all coaches of the region
+  async coachRanking(region) {
+    region = region ?? this.myRegion();
+    const rows = check(await this.sb.rpc('coach_ranking', { p_region: region || '' })) || [];
+    await this.ensureUsers(rows.map((r) => r.coach_id));
+    return rows.map((r) => this.user(r.coach_id) && ({ ...this.user(r.coach_id), stats: { trainings: r.trainings, students: r.students, hours: Number(r.hours), avg: r.avg_stars === null ? null : Number(r.avg_stars), reviewsCount: r.reviews, reviews: [] } })).filter(Boolean);
   }
 
   // ---------- fair play & complaints ----------
@@ -474,23 +534,35 @@ export class SupabaseStore {
     check(await this.sb.from('complaints').insert({ author_id: this.uid(), target_id: targetId, reason, ref_id: refId || null }));
   }
   async complaints() {
-    return check(await this.sb.from('complaints').select('*').order('created_at', { ascending: false })).map((c) => ({
+    const rows = check(await this.sb.from('complaints').select('*').order('created_at', { ascending: false }).limit(200));
+    await this.ensureUsers(rows.flatMap((c) => [c.author_id, c.target_id]));
+    return rows.map((c) => ({
       id: c.id, authorId: c.author_id, targetId: c.target_id, reason: c.reason, refId: c.ref_id, status: c.status, createdAt: c.created_at }));
   }
   async resolveComplaint(id, accept) { check(await this.sb.rpc('resolve_complaint', { p_id: id, p_accept: accept })); }
-  async disputes() { return check(await this.sb.from('matches').select('*').eq('status', 'disputed')).map(toMatch); }
+  async disputes() {
+    const ms = check(await this.sb.from('matches').select('*').eq('status', 'disputed').limit(200)).map(toMatch);
+    await this.ensureUsers(ms.flatMap((m) => [...m.teamA, ...m.teamB])); return ms;
+  }
   async resolveDispute(id, keep) { check(await this.sb.rpc('resolve_dispute', { p_match: id, p_keep: keep })); }
-  async setBan(userId, days) { check(await this.sb.rpc('set_ban', { p_user: userId, p_days: days })); }
+  async setBan(userId, days, reason = '') { check(await this.sb.rpc('set_ban', { p_user: userId, p_days: days, p_reason: reason })); }
 
   // ---------- tournaments ----------
   async tournaments() {
-    const [tr, er] = await Promise.all([this.sb.from('tournaments').select('*').order('created_at', { ascending: false }), this.sb.from('tournament_entries').select('*')]);
-    const es = check(er);
-    return check(tr).map((t) => toTournament(t, es));
+    // Players: tournaments of their region; the admin: all. Only the latest ones, entries only for them.
+    let q = this.sb.from('tournaments').select('*');
+    if (this.meCache?.role !== 'admin' && this.myRegion()) q = q.eq('region', this.myRegion());
+    const ts = check(await q.order('created_at', { ascending: false }).limit(60));
+    const es = ts.length ? check(await this.sb.from('tournament_entries').select('*').in('tournament_id', ts.map((t) => t.id))) : [];
+    await this.ensureUsers(es.map((e) => e.user_id));
+    return ts.map((t) => toTournament(t, es));
   }
   async tournament(id) {
     const [tr, er] = await Promise.all([this.sb.from('tournaments').select('*').eq('id', id).single(), this.sb.from('tournament_entries').select('*').eq('tournament_id', id)]);
-    return toTournament(check(tr), check(er));
+    const t = toTournament(check(tr), check(er));
+    const b = t.bracket || {};
+    await this.ensureUsers([...t.entries.map((e) => e.userId), ...[...(b.qf || []), ...(b.sf || []), ...(b.cons || []), b.final || {}].flatMap((x) => [x.a, x.b])]);
+    return t;
   }
   async applyTournament(id) {
     const me = this.meCache; const fp = fairplay(me.fpSum, me.fpCount);
@@ -512,8 +584,12 @@ export class SupabaseStore {
   // ---------- news ----------
   // Local news: the newest 30 with their comments only (old news are never loaded)
   async news() {
-    const ns = check(await this.sb.from('news').select('*').order('created_at', { ascending: false }).limit(30));
-    const cs = ns.length ? check(await this.sb.from('news_comments').select('*').in('news_id', ns.map((n) => n.id)).order('created_at')) : [];
+    let q = this.sb.from('news').select('*');
+    const rg = this.myRegion();
+    if (this.meCache?.role !== 'admin' && rg) q = q.in('region', ['', rg]); // my region + news for everyone
+    const ns = check(await q.order('created_at', { ascending: false }).limit(30));
+    const cs = ns.length ? check(await this.sb.from('news_comments').select('*').in('news_id', ns.map((n) => n.id)).order('created_at').limit(1000)) : [];
+    await this.ensureUsers(cs.map((c) => c.user_id));
     return ns.map((n) => ({ id: n.id, title: n.title, body: n.body, titleUz: n.title_uz || '', bodyUz: n.body_uz || '', auto: !!n.auto, region: n.region || '',
       section: n.section, photos: n.photos, createdAt: n.created_at,
       comments: cs.filter((c) => c.news_id === n.id).map((c) => ({ id: c.id, userId: c.user_id, text: c.text, createdAt: c.created_at })) }));
@@ -542,21 +618,48 @@ export class SupabaseStore {
 
   // ---------- admin ----------
   async inviteCoach({ phone, firstName, lastName }) { check(await this.sb.rpc('invite_coach', { p_phone: phone, p_first: firstName, p_last: lastName })); }
-  async stats() {
-    const week = new Date(Date.now() - 7 * 864e5).toISOString();
-    const month = new Date(Date.now() - 30 * 864e5).toISOString();
-    const [, mw, tw, amr] = await Promise.all([
-      this.refresh(),
-      this.sb.from('matches').select('id', { count: 'exact', head: true }).eq('status', 'confirmed').gte('played_at', week),
-      this.sb.from('trainings').select('id', { count: 'exact', head: true }).eq('status', 'confirmed').gte('played_at', week),
-      this.sb.from('matches').select('team_a,team_b').gte('played_at', month),
-    ]);
-    const am = check(amr);
-    return {
-      users: this.users.filter((u) => u.role === 'player').length,
-      coaches: this.users.filter((u) => u.role === 'coach').length,
-      matchesWeek: mw.count ?? 0, trainingsWeek: tw.count ?? 0,
-      activePlayers: new Set(am.flatMap((m) => [...m.team_a, ...m.team_b])).size,
-    };
+  async stats(region = '') { return check(await this.sb.rpc('admin_stats', { p_region: region || '' })); }
+
+  // One page of users for the administrator (any region), with phone and e-mail
+  async adminUsers({ region = '', role = '', q = '', filter = '', offset = 0, limit = 50 } = {}) {
+    const rows = check(await this.sb.rpc('admin_users', { p_region: region, p_role: role, p_q: q, p_filter: filter, p_offset: offset, p_limit: limit })) || [];
+    const ids = rows.map((r) => r.id);
+    await this.ensureUsers(ids);
+    return { total: Number(rows[0]?.total || 0), rows: rows.map((r) => ({ ...(this.user(r.id) || {}), id: r.id, playerNo: r.player_no, role: r.role,
+      firstName: r.first_name, lastName: r.last_name, photo: r.photo_url, region: r.region, district: r.district, league: r.league, rating: r.rating,
+      matches: r.matches, bannedUntil: r.banned_until, banReason: r.ban_reason, createdAt: r.created_at, phone: r.phone || '', email: r.email || '' })) };
   }
+  // Everything for a file (page by page, any size)
+  async adminExport({ region = '', role = '' } = {}) {
+    let all = [];
+    for (let from = 0; ; from += 1000) {
+      const rows = check(await this.sb.rpc('admin_users', { p_region: region, p_role: role, p_q: '', p_filter: '', p_offset: from, p_limit: 1000 })) || [];
+      all = all.concat(rows);
+      if (rows.length < 1000) break;
+    }
+    return all;
+  }
+
+  // ---------- support chat (player ↔ administration) ----------
+  async supportMine() {
+    return check(await this.sb.from('support_messages').select('*').eq('user_id', this.uid()).order('created_at', { ascending: false }).limit(100))
+      .reverse().map((m) => ({ id: m.id, fromAdmin: m.from_admin, text: m.text, createdAt: m.created_at, readAt: m.read_at }));
+  }
+  async supportUnread() {
+    const r = await this.sb.from('support_messages').select('id', { count: 'exact', head: true }).eq('user_id', this.uid()).eq('from_admin', true).is('read_at', null);
+    return r.count || 0;
+  }
+  async supportSend(text) { check(await this.sb.from('support_messages').insert({ user_id: this.uid(), text, from_admin: false })); }
+  async supportRead(userId = null) { check(await this.sb.rpc('support_read', { p_user: userId })); }
+  async supportThreads() {
+    const rows = check(await this.sb.rpc('support_threads', { p_limit: 200 })) || [];
+    await this.ensureUsers(rows.map((r) => r.user_id));
+    return rows.map((r) => ({ userId: r.user_id, lastText: r.last_text, lastFromAdmin: r.last_from_admin, lastAt: r.last_at, unread: r.unread }));
+  }
+  async supportThread(userId) {
+    await this.ensureUsers([userId]);
+    return check(await this.sb.from('support_messages').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(200))
+      .reverse().map((m) => ({ id: m.id, fromAdmin: m.from_admin, text: m.text, createdAt: m.created_at, readAt: m.read_at }));
+  }
+  async supportReply(userId, text) { check(await this.sb.from('support_messages').insert({ user_id: userId, text, from_admin: true })); }
 }
