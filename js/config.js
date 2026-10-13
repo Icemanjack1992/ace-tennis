@@ -11,4 +11,6 @@ window.ACE_CONFIG = {
   emailLogin: true,
   // true = also show login by SMS code (needs the Eskiz SMS hook)
   smsLogin: false,
+  // Contact e-mail shown in the user agreement (оферта)
+  contactEmail: 'dadabaev.azizbek@gmail.com',
 };
