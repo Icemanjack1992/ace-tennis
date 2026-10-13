@@ -284,6 +284,8 @@ function coachRequestSheet(store) {
     <form id="crf">
       <div class="grid2"><div><label class="f" for="cfn">${L('Имя', 'Ism')}*</label><input id="cfn" class="input" required maxlength="60"></div>
         <div><label class="f" for="cln">${L('Фамилия', 'Familiya')}*</label><input id="cln" class="input" required maxlength="60"></div></div>
+      <label class="f" for="crg">${L('Область, где тренируете', 'Qaysi viloyatda mashg‘ulot o‘tkazasiz')}*</label>
+      <select id="crg" class="input" required><option value="">—</option>${REGIONS.map((r) => `<option value="${r.code}">${esc(L(r.ru, r.uz))}</option>`).join('')}</select>
       <label class="f" for="cph">${L('Номер телефона', 'Telefon raqami')}*</label>
       <input id="cph" class="input" type="tel" inputmode="tel" autocomplete="tel" value="+998 " required>
       <label class="f" for="cex">${L('Опыт тренера', 'Murabbiylik tajribasi')}*</label>
@@ -298,10 +300,11 @@ function coachRequestSheet(store) {
       e.preventDefault();
       if (!el.querySelector('#cterms').checked) { toast(L('Примите пользовательское соглашение', 'Foydalanuvchi kelishuvini qabul qiling')); return; }
       const v = (id) => el.querySelector('#' + id).value.trim();
+      if (!v('crg')) { toast(L('Выберите область', 'Viloyatni tanlang')); return; }
       const phone = normPhone(v('cph'));
       if (!phone) { toast(L('Введите номер в формате +998 90 123 45 67', 'Raqamni +998 90 123 45 67 shaklida kiriting')); return; }
       act(el.querySelector('#crSend'), async () => {
-        await store.coachRequest({ firstName: v('cfn'), lastName: v('cln'), phone, experience: +v('cex') || null, about: v('cab'), termsVer: TERMS_VERSION });
+        await store.coachRequest({ firstName: v('cfn'), lastName: v('cln'), phone, experience: +v('cex') || null, about: v('cab'), region: v('crg'), termsVer: TERMS_VERSION });
         close();
         sheet(`<h2 class="h">${L('Заявка отправлена', 'Ariza yuborildi')}</h2>
           <div>${L('Администратор Ace Tennis позвонит вам. После одобрения нажмите «Регистрация», введите почту и пароль, а в анкете укажите этот же номер телефона — профиль тренера включится автоматически.', 'Administrator sizga qo‘ng‘iroq qiladi. Tasdiqlangach «Ro‘yxatdan o‘tish»ni bosing va anketada shu raqamni kiriting — murabbiy profili avtomatik yoqiladi.')}</div>
@@ -1358,11 +1361,11 @@ export const admin = {
       const inviteForm = `<form class="card" id="inv"><h2 class="h">${L('Пригласить тренера', 'Murabbiyni taklif qilish')}</h2><div class="muted">${L('После личной встречи. Тренер войдёт по этому номеру и сразу получит роль тренера.', 'Shaxsiy uchrashuvdan so‘ng. Murabbiy shu raqam bilan kiradi.')}</div>
         <div class="grid2"><div><label class="f" for="if">${L('Имя', 'Ism')}</label><input class="input" id="if" required></div><div><label class="f" for="il">${L('Фамилия', 'Familiya')}</label><input class="input" id="il" required></div></div>
         <label class="f" for="ip">${L('Телефон', 'Telefon')}</label><input class="input" id="ip" type="tel" value="+998" required><button class="btn ball block mt">${L('Пригласить', 'Taklif qilish')}</button></form>`;
-      const rs = await store.coachRequests();
+      const rs = (await store.coachRequests()).filter((r) => !aState.region || r.region === aState.region);
       const st = { new: [L('новая', 'yangi'), 'warn'], approved: [L('одобрена', 'tasdiqlandi'), 'ok'], rejected: [L('отклонена', 'rad etildi'), 'bad'] };
-      body = `${inviteForm}<div class="muted">${L('Позвоните тренеру и после разговора нажмите «Одобрить». Тренер регистрируется по почте и указывает в анкете этот номер — роль тренера включится сама.', 'Murabbiyga qo‘ng‘iroq qiling va «Tasdiqlash»ni bosing. Murabbiy anketada shu raqamni kiritsa, murabbiy roli o‘zi yoqiladi.')}</div>
+      body = `${regionSelect('aRegion', aState.region)}${inviteForm}<div class="muted">${L('Позвоните тренеру и после разговора нажмите «Одобрить». Тренер регистрируется по почте и указывает в анкете этот номер — роль тренера включится сама.', 'Murabbiyga qo‘ng‘iroq qiling va «Tasdiqlash»ni bosing. Murabbiy anketada shu raqamni kiritsa, murabbiy roli o‘zi yoqiladi.')}</div>
         ${rs.map((r) => `<div class="card"><div class="row between"><span class="strong">${esc(r.firstName)} ${esc(r.lastName)}</span><span class="tag ${st[r.status][1]}">${st[r.status][0]}</span></div>
-          <div class="muted">${yearsText(r.experience, 'exp')} · ${fmtDate(r.createdAt, true)}</div>
+          <div class="muted">${r.region ? `<b>${esc(regionShort(r.region))}</b> · ` : `${L('область не указана', 'viloyat ko‘rsatilmagan')} · `}${yearsText(r.experience, 'exp')} · ${fmtDate(r.createdAt, true)}</div>
           ${r.about ? `<div class="mt">${esc(r.about)}</div>` : ''}
           <a class="btn ghost sm" href="tel:+${esc(String(r.phone).replace(/\D/g, ''))}" style="width:100%;margin-top:10px">📞 ${esc(fmtPhone(String(r.phone).replace(/\D/g, '')))}</a>
           ${r.status === 'new' ? `<div class="grid2 mt"><button class="btn sm" data-creq="${r.id}:1">${L('Одобрить', 'Tasdiqlash')}</button><button class="btn ghost sm" data-creq="${r.id}:0">${L('Отклонить', 'Rad etish')}</button></div>` : ''}</div>`).join('') || `<div class="card"><div class="muted">${L('Заявок пока нет', 'Hozircha ariza yo‘q')}</div></div>`}`;

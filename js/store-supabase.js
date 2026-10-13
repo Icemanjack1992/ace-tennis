@@ -606,13 +606,13 @@ export class SupabaseStore {
   async hideComment(newsId, cid) { check(await this.sb.from('news_comments').delete().eq('id', cid)); }
 
   // ---------- coach requests (login screen → admin) ----------
-  async coachRequest({ firstName, lastName, phone, experience, about, termsVer }) {
-    const { error } = await this.sb.from('coach_requests').insert({ first_name: firstName, last_name: lastName, phone, experience: experience || null, about: about || '', terms_ver: termsVer || '' });
+  async coachRequest({ firstName, lastName, phone, experience, about, termsVer, region }) {
+    const { error } = await this.sb.from('coach_requests').insert({ first_name: firstName, last_name: lastName, phone, experience: experience || null, about: about || '', terms_ver: termsVer || '', region: region || '' });
     if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'Заявка с этим номером уже отправлена — администратор свяжется с вами' : error.message);
   }
   async coachRequests() {
     return check(await this.sb.from('coach_requests').select('*').order('created_at', { ascending: false }).limit(100)).map((r) => ({
-      id: r.id, firstName: r.first_name, lastName: r.last_name, phone: r.phone, experience: r.experience, about: r.about, status: r.status, createdAt: r.created_at }));
+      id: r.id, firstName: r.first_name, lastName: r.last_name, phone: r.phone, experience: r.experience, about: r.about, region: r.region || '', status: r.status, createdAt: r.created_at }));
   }
   async resolveCoachRequest(id, approve) { check(await this.sb.rpc('resolve_coach_request', { p_id: id, p_approve: !!approve })); }
 
