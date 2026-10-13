@@ -950,7 +950,7 @@ export const rating = {
           <span class="row" style="gap:8px;min-width:0">${avatar(u, 'sm')}<span class="grow" style="min-width:0"><span class="strong ellipsis" style="display:block">${esc(fullName(u))}</span>
             ${u.top1Days ? `<span class="tag ball" style="text-transform:none;letter-spacing:0">${u.top1Days} ${L('дн. топ-1', 'kun top-1')}</span>` : u.top10Days ? `<span class="tag soft">${u.top10Days} ${L('дн. топ-10', 'kun top-10')}</span>` : ''}${u.role === 'coach' ? ` <span class="tag soft">${L('Тренер', 'Murabbiy')}</span>` : ''}</span></span>
           <span style="text-align:right;font-weight:600">${formatStrength(u.rating)}</span><span style="text-align:right" class="num">${fmtNum(u.points)}</span></a>`).join('')
-        : `<div class="empty">${L('В этой лиге пока нет игроков', 'Bu ligada hali o‘yinchi yo‘q')}</div>`}
+        : `<div class="empty">${L('В этой лиге пока нет игроков', 'Bu ligada hali o‘yinchi yo‘q')}<div class="small" style="margin-top:6px">${L('Игрок попадает в рейтинг после первого подтверждённого матча', 'O‘yinchi birinchi tasdiqlangan o‘yindan keyin reytingga kiradi')}</div></div>`}
       </div>
       <div class="muted small">${L('Сезоны: весенний (март–май), летний (июнь–август), осенний (сентябрь–ноябрь), зимний (декабрь–февраль). Очки сезона обнуляются в его первый день, годовые — 1 января. Уровень силы не обнуляется.', 'Mavsumlar: bahorgi (mart–may), yozgi (iyun–avgust), kuzgi (sentabr–noyabr), qishki (dekabr–fevral). Mavsum ochkolari uning birinchi kunida, yillik — 1-yanvarda nollanadi. Kuch darajasi nollanmaydi.')}</div>
     </div>`;
@@ -1299,7 +1299,7 @@ export const admin = {
     const s0 = await store.stats('');
     const tabs = [['overview', L('Обзор', 'Umumiy')], ['support', L('Обращения', 'Murojaatlar'), s0.support], ['users', L('Люди', 'Odamlar')],
       ['complaints', L('Жалобы', 'Shikoyatlar'), s0.openComplaints + s0.disputes], ['coaches', L('Тренеры', 'Murabbiylar'), s0.coachRequests],
-      ['tournaments', L('Турниры', 'Turnirlar')], ['news', L('Новости', 'Yangiliklar')]];
+      ['news', L('Новости', 'Yangiliklar')]];
     const head = `<div class="hero"><div class="topbar"><span class="brand">${logo(30)} ${L('Админ', 'Admin')}</span><button class="iconbtn" data-logout aria-label="${L('Выйти', 'Chiqish')}">${icon.close}</button></div></div>
       <div class="wrap" style="padding-bottom:0"><div class="chips scroll">${tabs.map(([k, l, n]) => `<a class="chip ${tab === k ? 'on' : ''}" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;${tab === k ? '' : 'color:inherit'}" href="#/admin/${k}">${l}${n ? `<span class="tag bad" style="padding:1px 7px">${n}</span>` : ''}</a>`).join('')}</div></div>`;
     let body = '';
@@ -1372,7 +1372,9 @@ export const admin = {
     }
     if (tab === 'tournaments') {
       const ts = (await store.tournaments()).filter((t) => !aState.region || (t.region || 'namangan') === aState.region);
-      body = `<form class="card" id="tnew"><h2 class="h">${L('Новый турнир', 'Yangi turnir')}</h2>
+      body = `${regionSelect('aRegion', aState.region)}
+        <div class="muted small" style="margin:8px 2px 0">${L('Кубки создаёте вы: 8 игроков одной лиги, заявки одобряете здесь. Турниры сезона (топ-4 каждой лиги) создаются сами в первый день нового сезона.', 'Kuboklarni siz yaratasiz: bir ligadan 8 o‘yinchi, arizalarni shu yerda tasdiqlaysiz. Mavsum turnirlari (har liga top-4) yangi mavsumning birinchi kunida o‘zi yaratiladi.')}</div>
+        <form class="card mt" id="tnew"><h2 class="h">${L('Новый турнир', 'Yangi turnir')}</h2>
         <label class="f" for="tn">${L('Название', 'Nomi')}</label><input class="input" id="tn" required>
         <label class="f" for="trg">${L('Область', 'Viloyat')}</label><select class="input" id="trg">${REGIONS.map((r) => `<option value="${r.code}" ${r.code === aState.region ? 'selected' : ''}>${esc(L(r.ru, r.uz))}</option>`).join('')}</select>
         <div class="grid2"><div><label class="f" for="tl">${L('Лига', 'Liga')}</label><select class="input" id="tl">${LEAGUES.map((l) => `<option value="${l.id}">${L(l.ru, l.uz)}</option>`).join('')}</select></div><div><label class="f" for="ts">${L('Спонсор', 'Homiy')}</label><input class="input" id="ts"></div></div>
@@ -1395,6 +1397,7 @@ export const admin = {
           <div class="muted small">${L('Итоги турниров и сезонов публикуются сами. Мировые новости обновляются каждые 30 минут и хранятся 7 дней, автоматические местные — 1 год, ваши — пока не удалите.', 'Turnir va mavsum natijalari o‘zi e’lon qilinadi. Jahon yangiliklari har 30 daqiqada yangilanadi va 7 kun saqlanadi, avtomatik mahalliylar — 1 yil, siznikilar — o‘chirmaguningizcha.')}</div>
           <div class="list mt">${ns.map((n) => `<div class="row between" style="gap:10px"><div class="grow" style="min-width:0"><a href="#/news/${n.id}" class="strong ellipsis" style="display:block;color:inherit;text-decoration:none">${esc(n.title)}</a><div class="muted small">${fmtDate(n.createdAt)}${n.auto ? ' · ' + L('авто', 'avto') : ''}</div></div><button class="btn ghost sm" data-delnews="${n.id}">${L('Удалить', 'O‘chirish')}</button></div>`).join('') || `<div class="muted">${L('Новостей пока нет', 'Hali yangilik yo‘q')}</div>`}</div></div>`;
     }
+    if (tab === 'tournaments') return `<div class="pagehead"><h1 class="title">${L('Турниры', 'Turnirlar')}</h1></div><div class="wrap">${body}</div>`;
     return `${head}<div class="wrap">${body}</div>`;
   },
   mount(root, params, store) {

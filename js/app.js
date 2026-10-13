@@ -28,12 +28,13 @@ const routes = [
 ];
 
 function nav(active) {
-  const a = (href, key, ic, label) => `<a href="${href}" class="${active === key ? 'on' : ''}" ${active === key ? 'aria-current="page"' : ''}>${ic}${label}</a>`;
+  const a = (href, key, ic, label) => `<a href="${href}" data-k="${key}" class="${active === key ? 'on' : ''}" ${active === key ? 'aria-current="page"' : ''}>${ic}${label}</a>`;
   // The administrator does not play: his menu has no "+", challenges or own profile
   if (store.me()?.role === 'admin') {
     return `<nav class="tabs" aria-label="${L('Меню администратора', 'Administrator menyusi')}">
     ${a('#/admin', 'admin', icon.shield, L('Админ', 'Admin'))}
     ${a('#/search', 'search', icon.search, L('Игроки', 'O‘yinchilar'))}
+    ${a('#/admin/tournaments', 'tournaments', icon.bracket, L('Турниры', 'Turnirlar'))}
     ${a('#/rating', 'rating', icon.trophy, L('Рейтинг', 'Reyting'))}
     ${a('#/news', 'home', icon.news, L('Новости', 'Yangiliklar'))}
   </nav>`;
@@ -80,8 +81,11 @@ export async function render(keepScroll = false) {
   if (me && !profileDone(me) && hash !== '#/onboarding' && hash !== '#/terms') { location.hash = '#/onboarding'; return; }
   if (opts.admin && me?.role !== 'admin') { location.hash = '#/home'; return; }
   if (me?.role === 'admin' && /^#\/(add|confirm|edit|profile$|home)/.test(hash)) { location.hash = '#/admin'; return; }
+  if (me?.role === 'admin' && hash === '#/tournaments') { location.hash = '#/admin/tournaments'; return; }
+  // The administrator has a separate "Tournaments" tab in the bottom menu
+  const tab = me?.role === 'admin' && /^#\/(admin\/tournaments|tournament\/)/.test(hash) ? 'tournaments' : opts.tab;
   // Instant feedback: highlight the tab right away, the screen follows
-  if (!keepScroll) app.querySelectorAll('nav.tabs a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === `#/${opts.tab}`));
+  if (!keepScroll) app.querySelectorAll('nav.tabs a').forEach((a) => a.classList.toggle('on', a.dataset.k === tab));
   loading(true);
   // Gate: anything waiting for my confirmation must be handled first.
   // The answer is remembered, so this costs no waiting on normal navigation.
@@ -106,7 +110,7 @@ export async function render(keepScroll = false) {
   const y = window.scrollY;
   const upd = updateReady && me ? `<div class="demo-banner" style="background:var(--ball);color:var(--court)">${L('Вышло обновление приложения', 'Ilovaning yangi versiyasi chiqdi')} · <button data-do-update style="all:unset;text-decoration:underline;cursor:pointer;font-weight:800">${L('обновить', 'yangilash')}</button></div>` : '';
   const banner = upd + (store.mode === 'demo' && me ? `<div class="demo-banner">${L('Демо-режим: тестовые данные', 'Demo rejim: sinov ma’lumotlari')} · <button class="linkbtn" data-reset style="all:unset;text-decoration:underline;cursor:pointer">${L('сбросить', 'qayta tiklash')}</button></div>` : '');
-  app.innerHTML = `${banner}<div class="screen">${html}</div>${opts.tab && me ? nav(opts.tab) : ''}`;
+  app.innerHTML = `${banner}<div class="screen">${html}</div>${tab && me ? nav(tab) : ''}`;
   app.querySelector('[data-do-update]')?.addEventListener('click', () => { toast(L('Обновляем…', 'Yangilanmoqda…')); updateApp(); });
   app.querySelector('[data-reset]')?.addEventListener('click', () => { store.reset(); location.hash = '#/home'; render(); toast(L('Демо-данные сброшены', 'Demo ma’lumotlar tiklandi')); });
   window.scrollTo(0, keepScroll ? y : 0);
