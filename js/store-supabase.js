@@ -47,6 +47,10 @@ function authError(m = '') {
   if (/email not confirmed/i.test(m)) return 'Почта не подтверждена — откройте письмо от Supabase';
   if (/rate limit|too many/i.test(m)) return 'Слишком много попыток, подождите минуту';
   if (/signups not allowed|signup.*disabled/i.test(m)) return 'Регистрация по почте выключена в настройках Supabase';
+  if (/not authorized|sending.*email|error sending/i.test(m)) return 'Отправка писем пока не настроена — напишите администратору Ace Tennis';
+  if (/expired|invalid.*(token|otp)|token.*invalid/i.test(m)) return 'Неверный или устаревший код. Запросите новый';
+  if (/only request this after|security purposes/i.test(m)) return 'Подождите минуту и запросите код снова';
+  if (/should be different|same.*password/i.test(m)) return 'Новый пароль должен отличаться от старого';
   return m;
 }
 const check = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
@@ -56,7 +60,7 @@ const check = ({ data, error }) => { if (error) throw new Error(error.message); 
 const QUERY_TTL = 30e3;      // lists: ranking, news, tournaments…
 const USERS_TTL = 60e3;      // all profiles
 const PENDING_TTL = 30e3;    // "waiting for my confirmation" gate
-const CACHED = ['coachRequests', 'contacts', 'ranking', 'leaders', 'fairplayRanking', 'achievements', 'suggestOpponent', 'challenges', 'outgoing', 'history',
+const CACHED = ['adminContacts', 'coachRequests', 'contacts', 'ranking', 'leaders', 'fairplayRanking', 'achievements', 'suggestOpponent', 'challenges', 'outgoing', 'history',
   'coachStats', 'canReview', 'coachRanking', 'ratedFairplay', 'complaints', 'disputes', 'tournaments', 'tournament', 'news', 'stats'];
 const MUTATIONS = ['resolveCoachRequest', 'sharePhone', 'saveProfile', 'createMatch', 'createTraining', 'confirm', 'dispute', 'cancelOwn', 'createChallenge', 'answerChallenge',
   'addReview', 'rateFairplay', 'complain', 'resolveComplaint', 'resolveDispute', 'setBan', 'applyTournament', 'createTournament',
@@ -222,6 +226,28 @@ export class SupabaseStore {
     if (error) throw new Error(authError(error.message));
     snapClear(); this.invalidate(); await this.refresh(true);
     return { user: this.meCache };
+  }
+  // Forgotten password: a code comes by e-mail, the user types it in the app with a new password
+  async resetPassword(email) {
+    const { error } = await this.sb.auth.resetPasswordForEmail(email);
+    if (error) throw new Error(authError(error.message));
+  }
+  async confirmReset(email, code, password) {
+    const v = await this.sb.auth.verifyOtp({ email, token: code, type: 'recovery' });
+    if (v.error) throw new Error(authError(v.error.message));
+    const u = await this.sb.auth.updateUser({ password });
+    if (u.error) throw new Error(authError(u.error.message));
+    snapClear(); this.invalidate(); await this.refresh(true);
+    return { user: this.meCache };
+  }
+  async changePassword(password) {
+    const { error } = await this.sb.auth.updateUser({ password });
+    if (error) throw new Error(authError(error.message));
+  }
+  // Admin: phone and e-mail of every user (only the administrator gets an answer)
+  async adminContacts() {
+    const rows = check(await this.sb.rpc('admin_contacts')) || [];
+    return Object.fromEntries(rows.map((r) => [r.id, { phone: r.phone, email: r.email }]));
   }
   async signOut() { snapClear(); await this.sb.auth.signOut(); this.meCache = null; this.users = []; this.invalidate(); }
 

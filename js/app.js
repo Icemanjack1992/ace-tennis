@@ -22,11 +22,20 @@ const routes = [
   [/^#\/tournament\/([\w-]+)$/, V.tournament, { tab: 'home' }],
   [/^#\/news$/, V.news, { tab: 'home' }],
   [/^#\/news\/([\w-]+)$/, V.newsItem, { tab: 'home' }],
-  [/^#\/admin(?:\/(\w+))?$/, V.admin, { tab: 'profile', admin: true }],
+  [/^#\/admin(?:\/(\w+))?$/, V.admin, { tab: 'admin', admin: true }],
 ];
 
 function nav(active) {
   const a = (href, key, ic, label) => `<a href="${href}" class="${active === key ? 'on' : ''}" ${active === key ? 'aria-current="page"' : ''}>${ic}${label}</a>`;
+  // The administrator does not play: his menu has no "+", challenges or own profile
+  if (store.me()?.role === 'admin') {
+    return `<nav class="tabs" aria-label="${L('Меню администратора', 'Administrator menyusi')}">
+    ${a('#/admin', 'admin', icon.shield, L('Админ', 'Admin'))}
+    ${a('#/search', 'search', icon.search, L('Игроки', 'O‘yinchilar'))}
+    ${a('#/rating', 'rating', icon.trophy, L('Рейтинг', 'Reyting'))}
+    ${a('#/news', 'home', icon.news, L('Новости', 'Yangiliklar'))}
+  </nav>`;
+  }
   return `<nav class="tabs" aria-label="${L('Основное меню', 'Asosiy menyu')}">
     ${a('#/home', 'home', icon.home, L('Главная', 'Asosiy'))}
     ${a('#/search', 'search', icon.search, L('Поиск', 'Qidiruv'))}
@@ -63,6 +72,7 @@ export async function render(keepScroll = false) {
   if (!opts.open && !me) { location.hash = '#/login'; return; }
   if (me && !profileDone(me) && hash !== '#/onboarding') { location.hash = '#/onboarding'; return; }
   if (opts.admin && me?.role !== 'admin') { location.hash = '#/home'; return; }
+  if (me?.role === 'admin' && /^#\/(add|confirm|edit|profile$|home)/.test(hash)) { location.hash = '#/admin'; return; }
   // Instant feedback: highlight the tab right away, the screen follows
   if (!keepScroll) app.querySelectorAll('nav.tabs a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === `#/${opts.tab}`));
   loading(true);
