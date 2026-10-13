@@ -1,8 +1,8 @@
 // Ace Tennis service worker: app shell works offline and opens instantly; data always goes to the network.
-const CACHE = 'ace-v8';
+const CACHE = 'ace-v10';
 const EXT = 'ace-ext-v1'; // supabase library from jsdelivr and fonts: saved once, then opened from the phone
 const SHELL = [
-  './', './index.html', './css/app.css', './js/config.js', './js/app.js', './js/ui.js', './js/views.js',
+  './', './index.html', './css/app.css', './js/config.js', './js/app.js', './js/ui.js', './js/views.js', './js/terms.js', './js/regions.js',
   './js/rating.js', './js/logic.js', './js/store-demo.js', './js/store-supabase.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png',
 ];
@@ -28,6 +28,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   if (url.origin !== location.origin) return;
+  if (url.pathname.endsWith('/version.txt')) return; // always from the network: tells the app about updates
   e.respondWith(caches.open(CACHE).then(async (cache) => {
     const cached = await cache.match(e.request, { ignoreSearch: true });
     const fresh = fetch(e.request).then((res) => { if (res.ok) cache.put(e.request, res.clone()); return res; }).catch(() => cached);
