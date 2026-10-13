@@ -1,6 +1,6 @@
 import { DemoStore } from './store-demo.js';
 import { SupabaseStore } from './store-supabase.js';
-import { L, icon, setLang, getLang, toast, profileDone } from './ui.js';
+import { L, icon, setLang, getLang, toast, profileDone, newerVersion, updateApp } from './ui.js';
 import * as V from './views.js';
 
 const cfg = window.ACE_CONFIG || {};
@@ -9,6 +9,7 @@ const app = document.getElementById('app');
 
 const routes = [
   [/^#\/login$/, V.login, { open: true }],
+  [/^#\/terms$/, V.termsPage, { open: true }],
   [/^#\/onboarding$/, V.onboarding, { open: true, gateFree: true }],
   [/^#\/confirm$/, V.confirmScreen, { gateFree: true }],
   [/^#\/home$/, V.home, { tab: 'home' }],
@@ -60,6 +61,11 @@ function currentRoute() {
   return null;
 }
 
+// A newer version on the server → a thin banner "update" at the top (checked at start and every 30 min)
+let updateReady = null;
+const checkUpdate = async () => { const v = await newerVersion(); if (v && v !== updateReady) { updateReady = v; window.dispatchEvent(new Event('ace:data')); } };
+setTimeout(checkUpdate, 4000); setInterval(checkUpdate, 30 * 60e3);
+
 let renderSeq = 0;
 // keepScroll: re-draw the same screen after an action or filter, without jumping to the top
 export async function render(keepScroll = false) {
@@ -70,7 +76,7 @@ export async function render(keepScroll = false) {
   const [match, view, opts] = cur;
   const me = store.me();
   if (!opts.open && !me) { location.hash = '#/login'; return; }
-  if (me && !profileDone(me) && hash !== '#/onboarding') { location.hash = '#/onboarding'; return; }
+  if (me && !profileDone(me) && hash !== '#/onboarding' && hash !== '#/terms') { location.hash = '#/onboarding'; return; }
   if (opts.admin && me?.role !== 'admin') { location.hash = '#/home'; return; }
   if (me?.role === 'admin' && /^#\/(add|confirm|edit|profile$|home)/.test(hash)) { location.hash = '#/admin'; return; }
   // Instant feedback: highlight the tab right away, the screen follows
@@ -97,8 +103,10 @@ export async function render(keepScroll = false) {
   if (seq !== renderSeq) return;
   loading(false);
   const y = window.scrollY;
-  const banner = store.mode === 'demo' && me ? `<div class="demo-banner">${L('Демо-режим: тестовые данные', 'Demo rejim: sinov ma’lumotlari')} · <button class="linkbtn" data-reset style="all:unset;text-decoration:underline;cursor:pointer">${L('сбросить', 'qayta tiklash')}</button></div>` : '';
+  const upd = updateReady && me ? `<div class="demo-banner" style="background:var(--ball);color:var(--court)">${L('Вышло обновление приложения', 'Ilovaning yangi versiyasi chiqdi')} · <button data-do-update style="all:unset;text-decoration:underline;cursor:pointer;font-weight:800">${L('обновить', 'yangilash')}</button></div>` : '';
+  const banner = upd + (store.mode === 'demo' && me ? `<div class="demo-banner">${L('Демо-режим: тестовые данные', 'Demo rejim: sinov ma’lumotlari')} · <button class="linkbtn" data-reset style="all:unset;text-decoration:underline;cursor:pointer">${L('сбросить', 'qayta tiklash')}</button></div>` : '');
   app.innerHTML = `${banner}<div class="screen">${html}</div>${opts.tab && me ? nav(opts.tab) : ''}`;
+  app.querySelector('[data-do-update]')?.addEventListener('click', () => { toast(L('Обновляем…', 'Yangilanmoqda…')); updateApp(); });
   app.querySelector('[data-reset]')?.addEventListener('click', () => { store.reset(); location.hash = '#/home'; render(); toast(L('Демо-данные сброшены', 'Demo ma’lumotlar tiklandi')); });
   window.scrollTo(0, keepScroll ? y : 0);
   try { await view.mount?.(app, match.slice(1), store); }

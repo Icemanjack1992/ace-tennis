@@ -27,8 +27,25 @@ export const icon = {
 
 export const logo = (size = 32) => `<svg role="img" aria-label="Ace Tennis" width="${size}" height="${size}" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#D8F244"/><path d="M31 75 50 24l19 51" fill="none" stroke="#0E3B2C" stroke-width="${size < 36 ? 10 : 8}" stroke-linecap="round" stroke-linejoin="round"/><path d="M37 57q13 7 26 0" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/></svg>`;
 
-// Required profile fields are filled (admins are exempt)
-export const profileDone = (u) => !!u && (u.role === 'admin' || !!(u.firstName && u.lastName && u.gender && u.district && u.availability?.length && u.phone));
+// Version of the app. Raise it together with version.txt on every release: phones see "update available".
+export const APP_VERSION = '2026.10.13-2';
+// Is a newer version published? (version.txt is never cached)
+export async function newerVersion() {
+  try {
+    const v = (await (await fetch(`./version.txt?t=${Date.now()}`, { cache: 'no-store' })).text()).trim();
+    return v && v !== APP_VERSION && /^[\w.-]{3,40}$/.test(v) ? v : null;
+  } catch { return null; }
+}
+// Update without reinstalling: drop the saved app files, take the new service worker, reload
+export async function updateApp() {
+  try { const keys = await caches.keys(); await Promise.all(keys.filter((k) => k.startsWith('ace-v')).map((k) => caches.delete(k))); } catch { /* no cache */ }
+  try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); reg?.waiting?.postMessage?.('skip'); } catch { /* no sw */ }
+  location.reload();
+}
+// Version of the user agreement (js/terms.js). A new version → everyone accepts it once in the profile form.
+export const TERMS_VERSION = '2026-10-13';
+// Required profile fields are filled and the current agreement is accepted (admins are exempt)
+export const profileDone = (u) => !!u && (u.role === 'admin' || !!(u.firstName && u.lastName && u.gender && u.region && u.district &&u.availability?.length && u.phone && u.termsVer === TERMS_VERSION));
 // '+998 90 123 45 67' / '901234567' → '998901234567', or '' if it is not a Uzbek mobile number
 export function normPhone(p) {
   let d = String(p || '').replace(/\D/g, '');

@@ -4,16 +4,16 @@ import { fairplay, FAIRPLAY_MIN_FOR_TOURNAMENT } from './rating.js';
 
 const toUser = (r) => r && ({
   id: r.id, role: r.role, firstName: r.first_name, lastName: r.last_name, photo: r.photo_url, gender: r.gender,
-  birthYear: r.birth_year, district: r.district, years: r.years, selfLevel: r.self_level, hand: r.hand,
+  birthYear: r.birth_year, region: r.region || '', district: r.district, years: r.years, selfLevel: r.self_level, hand: r.hand,
   availability: r.availability || [], phone: r.phone, rating: r.rating, matches: r.matches, wins: r.wins,
   form: r.form, league: r.league, pointsQ: r.points_q, pointsY: r.points_y, fpSum: Number(r.fp_sum),
   fpCount: r.fp_count, bannedUntil: r.banned_until, top10Days: r.top10_days, top1Days: r.top1_days,
   coach: r.role === 'coach' ? { verified: r.coach_verified, price: null, specialization: [], worksWith: '', experience: r.years, ...(r.coach || {}) } : null,
-  lang: r.lang, createdAt: r.created_at,
+  lang: r.lang, createdAt: r.created_at, termsVer: r.terms_ver || '', playerNo: r.player_no || null,
 });
 const fromUser = (p) => {
   const map = { firstName: 'first_name', lastName: 'last_name', photo: 'photo_url', gender: 'gender', birthYear: 'birth_year',
-    district: 'district', years: 'years', selfLevel: 'self_level', hand: 'hand', availability: 'availability', lang: 'lang' };
+    region: 'region', district: 'district', years: 'years', selfLevel: 'self_level', hand: 'hand', availability: 'availability', lang: 'lang' };
   const out = {};
   for (const [k, v] of Object.entries(p)) {
     if (map[k]) out[map[k]] = v;
@@ -33,11 +33,11 @@ const toTraining = (r) => ({
 });
 const toTournament = (r, entries = []) => ({
   id: r.id, name: r.name, league: r.league, startsAt: r.starts_at, endsAt: r.ends_at, sponsor: r.sponsor,
-  status: r.status, bracket: r.bracket, createdAt: r.created_at,
+  status: r.status, bracket: r.bracket, createdAt: r.created_at, kind: r.kind || 'cup', seasonKey: r.season_key || '', region: r.region || 'namangan',
   entries: entries.filter((e) => e.tournament_id === r.id).map((e) => ({ userId: e.user_id, status: e.status })),
 });
 // Phone numbers are not readable by other users (supabase/update-02.sql)
-const PROFILE_COLS = 'id,role,first_name,last_name,photo_url,gender,birth_year,district,years,self_level,hand,availability,rating,matches,wins,form,league,points_q,points_y,q_key,y_key,fp_sum,fp_count,banned_until,top10_days,top1_days,coach_verified,coach,lang,created_at,tg_username';
+const PROFILE_COLS = 'id,role,first_name,last_name,photo_url,gender,birth_year,region,district,years,self_level,hand,availability,rating,matches,wins,form,league,points_q,points_y,q_key,y_key,fp_sum,fp_count,banned_until,top10_days,top1_days,coach_verified,coach,lang,created_at,tg_username,terms_ver,player_no';
 // Supabase auth messages → Russian
 function authError(m = '') {
   if (/invalid login credentials/i.test(m)) return 'Неверная почта или пароль';
@@ -61,10 +61,10 @@ const QUERY_TTL = 30e3;      // lists: ranking, news, tournaments…
 const USERS_TTL = 60e3;      // all profiles
 const PENDING_TTL = 30e3;    // "waiting for my confirmation" gate
 const CACHED = ['adminContacts', 'coachRequests', 'contacts', 'ranking', 'leaders', 'fairplayRanking', 'achievements', 'suggestOpponent', 'challenges', 'outgoing', 'history',
-  'coachStats', 'canReview', 'coachRanking', 'ratedFairplay', 'complaints', 'disputes', 'tournaments', 'tournament', 'news', 'stats'];
+  'coachStats', 'canReview', 'coachRanking', 'ratedFairplay', 'complaints', 'disputes', 'tournaments', 'tournament', 'news', 'worldNews', 'stats'];
 const MUTATIONS = ['resolveCoachRequest', 'sharePhone', 'saveProfile', 'createMatch', 'createTraining', 'confirm', 'dispute', 'cancelOwn', 'createChallenge', 'answerChallenge',
   'addReview', 'rateFairplay', 'complain', 'resolveComplaint', 'resolveDispute', 'setBan', 'applyTournament', 'createTournament',
-  'approveEntry', 'startTournament', 'createTournamentMatch', 'addNews', 'addComment', 'hideComment', 'inviteCoach'];
+  'approveEntry', 'startTournament', 'createTournamentMatch', 'addNews', 'deleteNews', 'addComment', 'hideComment', 'inviteCoach'];
 // These change ratings / profiles, so the profile list is reloaded too
 const PROFILE_MUTATIONS = new Set(['resolveCoachRequest', 'saveProfile', 'confirm', 'rateFairplay', 'resolveComplaint', 'resolveDispute', 'setBan', 'createTournamentMatch', 'inviteCoach']);
 // Telegram login nonce lives 15 minutes; localStorage survives iPhone reloading the app while you are in Telegram
@@ -227,6 +227,20 @@ export class SupabaseStore {
     snapClear(); this.invalidate(); await this.refresh(true);
     return { user: this.meCache };
   }
+  // Registration with a code: the letter proves the address exists and belongs to the user,
+  // then the user creates a password (the account is created when the code is confirmed)
+  async signUpCode(email) {
+    const { error } = await this.sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    if (error) throw new Error(authError(error.message));
+  }
+  async confirmSignUp(email, code, password) {
+    const v = await this.sb.auth.verifyOtp({ email, token: code, type: 'email' });
+    if (v.error) throw new Error(authError(v.error.message));
+    const u = await this.sb.auth.updateUser({ password });
+    if (u.error && !/should be different|same.*password/i.test(u.error.message)) throw new Error(authError(u.error.message));
+    snapClear(); this.invalidate(); await this.refresh(true);
+    return { user: this.meCache };
+  }
   // Forgotten password: a code comes by e-mail, the user types it in the app with a new password
   async resetPassword(email) {
     const { error } = await this.sb.auth.resetPasswordForEmail(email);
@@ -278,6 +292,8 @@ export class SupabaseStore {
   async saveProfile(patch) {
     // The phone is protected: it is saved through a database function (also turns an invited coach into a coach)
     if (patch.phone !== undefined) check(await this.sb.rpc('set_my_phone', { p_phone: patch.phone }));
+    // Acceptance of the user agreement: the time is written by the server
+    if (patch.termsVer) check(await this.sb.rpc('accept_terms', { p_ver: patch.termsVer }));
     const row = fromUser(patch);
     if (Object.keys(row).length) check(await this.sb.from('profiles').update(row).eq('id', this.uid()));
     await this.refresh(true); return this.meCache;
@@ -349,17 +365,19 @@ export class SupabaseStore {
   }
 
   // ---------- rating ----------
-  async ranking({ league, period }) {
+  // Leagues are regional: the ranking is always inside one region
+  async ranking({ league, period, region }) {
     let q = this.sb.from('profiles').select(PROFILE_COLS).gt('matches', 0).neq('role', 'admin');
+    if (region) q = q.eq('region', region);
     if (league) q = q.eq('league', league);
     const col = period === 'year' ? 'points_y' : 'points_q';
     const rows = check(await q.order(col, { ascending: false }).order('rating', { ascending: false }).limit(100));
     return rows.map(toUser).map((u, i) => ({ ...u, place: i + 1, points: period === 'year' ? u.pointsY : u.pointsQ }));
   }
-  async leaders() {
+  async leaders(region) {
     const month = new Date(); month.setDate(1); month.setHours(0, 0, 0, 0);
     const [, mr] = await Promise.all([this.refresh(), this.sb.from('matches').select('team_a,team_b').eq('status', 'confirmed').gte('played_at', month.toISOString())]);
-    const ps = this.users.filter((u) => u.role !== 'admin' && u.matches > 0);
+    const ps = this.users.filter((u) => u.role !== 'admin' && u.matches > 0 && (!region || u.region === region));
     if (!ps.length) return { top1: null, streak: null, active: null, activeCount: 0 };
     const top1 = [...ps].sort((a, b) => b.top1Days - a.top1Days)[0];
     const streak = [...ps].sort((a, b) => b.form.match(/^В*/)[0].length - a.form.match(/^В*/)[0].length)[0];
@@ -386,7 +404,7 @@ export class SupabaseStore {
       .or(`team_a.cs.{${me.id}},team_b.cs.{${me.id}}`)]);
     const recent = check(rr);
     const played = new Set(recent.flatMap((m) => [...m.team_a, ...m.team_b]));
-    const c = this.users.filter((u) => u.role === 'player' && u.id !== me.id && u.firstName && !played.has(u.id))
+    const c = this.users.filter((u) => u.role === 'player' && u.id !== me.id && u.firstName && !played.has(u.id) && (!me.region || u.region === me.region))
       .map((u) => ({ u, s: Math.abs(u.rating - me.rating) - 40 * u.availability.filter((t) => me.availability.includes(t)).length }))
       .sort((a, b) => a.s - b.s);
     return c[0]?.u || null;
@@ -480,7 +498,7 @@ export class SupabaseStore {
     check(await this.sb.rpc('apply_tournament', { p_t: id }));
   }
   async createTournament(d) {
-    check(await this.sb.from('tournaments').insert({ name: d.name, league: d.league, starts_at: d.startsAt, ends_at: d.endsAt, sponsor: d.sponsor }));
+    check(await this.sb.from('tournaments').insert({ name: d.name, league: d.league, region: d.region, starts_at: d.startsAt, ends_at: d.endsAt, sponsor: d.sponsor }));
   }
   async approveEntry(tid, userId, ok) {
     check(await this.sb.from('tournament_entries').update({ status: ok ? 'approved' : 'rejected' }).eq('tournament_id', tid).eq('user_id', userId));
@@ -492,20 +510,28 @@ export class SupabaseStore {
   }
 
   // ---------- news ----------
+  // Local news: the newest 30 with their comments only (old news are never loaded)
   async news() {
-    const [nr, cr] = await Promise.all([this.sb.from('news').select('*').order('created_at', { ascending: false }).limit(30), this.sb.from('news_comments').select('*').order('created_at')]);
-    const ns = check(nr); const cs = check(cr);
-    return ns.map((n) => ({ id: n.id, title: n.title, body: n.body, section: n.section, photos: n.photos, createdAt: n.created_at,
+    const ns = check(await this.sb.from('news').select('*').order('created_at', { ascending: false }).limit(30));
+    const cs = ns.length ? check(await this.sb.from('news_comments').select('*').in('news_id', ns.map((n) => n.id)).order('created_at')) : [];
+    return ns.map((n) => ({ id: n.id, title: n.title, body: n.body, titleUz: n.title_uz || '', bodyUz: n.body_uz || '', auto: !!n.auto, region: n.region || '',
+      section: n.section, photos: n.photos, createdAt: n.created_at,
       comments: cs.filter((c) => c.news_id === n.id).map((c) => ({ id: c.id, userId: c.user_id, text: c.text, createdAt: c.created_at })) }));
   }
   async newsItem(id) { return (await this.news()).find((n) => n.id === id); }
-  async addNews(d) { check(await this.sb.from('news').insert({ title: d.title, body: d.body, section: d.section, photos: d.photos || [] })); }
+  // World tennis news (headline + photo + link to the original), kept 7 days
+  async worldNews() {
+    return check(await this.sb.from('world_news').select('id,title,summary,image,url,source,published_at').order('published_at', { ascending: false }).limit(30))
+      .map((n) => ({ id: n.id, title: n.title, summary: n.summary, image: n.image, url: n.url, source: n.source, publishedAt: n.published_at }));
+  }
+  async addNews(d) { check(await this.sb.from('news').insert({ title: d.title, body: d.body, section: d.section, photos: d.photos || [], region: d.region || '' })); }
+  async deleteNews(id) { check(await this.sb.from('news').delete().eq('id', id)); }
   async addComment(newsId, text) { check(await this.sb.from('news_comments').insert({ news_id: newsId, user_id: this.uid(), text })); }
   async hideComment(newsId, cid) { check(await this.sb.from('news_comments').delete().eq('id', cid)); }
 
   // ---------- coach requests (login screen → admin) ----------
-  async coachRequest({ firstName, lastName, phone, experience, about }) {
-    const { error } = await this.sb.from('coach_requests').insert({ first_name: firstName, last_name: lastName, phone, experience: experience || null, about: about || '' });
+  async coachRequest({ firstName, lastName, phone, experience, about, termsVer }) {
+    const { error } = await this.sb.from('coach_requests').insert({ first_name: firstName, last_name: lastName, phone, experience: experience || null, about: about || '', terms_ver: termsVer || '' });
     if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'Заявка с этим номером уже отправлена — администратор свяжется с вами' : error.message);
   }
   async coachRequests() {

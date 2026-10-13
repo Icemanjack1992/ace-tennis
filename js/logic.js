@@ -11,7 +11,7 @@ export const addHours = (iso, h) => new Date(new Date(iso).getTime() + h * 3600e
 export function newPlayer(p) {
   return {
     id: uid(), role: 'player', firstName: '', lastName: '', photo: null, gender: '', birthYear: null,
-    district: '', years: 0, selfLevel: '', hand: '', availability: [], phone: '',
+    region: '', district: '', years: 0, selfLevel: '', hand: '', availability: [], phone: '',
     rating: START_RATING, matches: 0, wins: 0, form: '', league: 'novice',
     pointsQ: 0, pointsY: 0, qKey: seasonKey(), yKey: yearKey(),
     fpSum: 0, fpCount: 0, bannedUntil: null, top10Days: 0, top1Days: 0,

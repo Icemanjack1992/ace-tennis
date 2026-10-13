@@ -1,7 +1,9 @@
 import {
   L, esc, icon, logo, avatar, fullName, profileDone, fmtPhone, shortName, formBadges, fmtDate, hoursLeft, fmtNum, comma, toast, sheet, readSets, setLang, getLang,
-  yearsText, appContext, installHint, bindInstallHint, normPhone, EXPERIENCE,
+  yearsText, appContext, installHint, bindInstallHint, normPhone, EXPERIENCE, TERMS_VERSION, APP_VERSION, newerVersion, updateApp,
 } from './ui.js';
+import { termsHtml, termsTitle } from './terms.js';
+import { REGIONS, region, regionShort, districtName, regionOf } from './regions.js';
 import { formatStrength, LEAGUES, fairplay, formatSets, winnerFromSets, FAIRPLAY_MIN_FOR_TOURNAMENT, seasonParts } from './rating.js';
 
 const rerender = () => window.dispatchEvent(new Event('ace:rerender'));
@@ -12,16 +14,29 @@ const leagueName = (id) => { const l = LEAGUES.find((x) => x.id === id); return 
 const fpText = (u) => { const f = fairplay(u?.fpSum, u?.fpCount); return f === null ? '—' : comma(f.toFixed(1)); };
 const banned = (u) => u?.bannedUntil && new Date(u.bannedUntil) > new Date();
 const back = (href = '#/home', light = false) => `<a href="${href}" class="iconbtn ${light ? 'light' : ''}" aria-label="${L('Назад', 'Orqaga')}">${icon.back}</a>`;
-// Namangan city + districts of Namangan region: [stored value, ru, uz]
-const DISTRICTS = [
-  ['г. Наманган', 'г. Наманган', 'Namangan shahri'], ['Касансайский район', 'Касансайский район', 'Kosonsoy tumani'],
-  ['Мингбулакский район', 'Мингбулакский район', 'Mingbuloq tumani'], ['Наманганский район', 'Наманганский район', 'Namangan tumani'],
-  ['Нарынский район', 'Нарынский район', 'Norin tumani'], ['Папский район', 'Папский район', 'Pop tumani'],
-  ['Туракурганский район', 'Туракурганский район', 'To‘raqo‘rg‘on tumani'], ['Уйчинский район', 'Уйчинский район', 'Uychi tumani'],
-  ['Учкурганский район', 'Учкурганский район', 'Uchqo‘rg‘on tumani'], ['Чартакский район', 'Чартакский район', 'Chortoq tumani'],
-  ['Чустский район', 'Чустский район', 'Chust tumani'], ['Янгикурганский район', 'Янгикурганский район', 'Yangiqo‘rg‘on tumani'],
-];
-const districtName = (v) => { const d = DISTRICTS.find((x) => x[0] === v); return d ? L(d[1], d[2]) : (v || ''); };
+// District options for a region; place text 'Чустский район, Наманганская' / 'г. Андижан'
+const districtOptions = (code, val) => {
+  const r = region(code);
+  if (!r) return `<option value="">${L('Сначала выберите область', 'Avval viloyatni tanlang')}</option>`;
+  return `<option value="">—</option>${r.districts.map((d) => `<option value="${esc(d.ru)}" ${d.ru === val ? 'selected' : ''}>${esc(L(d.ru, d.uz))}</option>`).join('')}`;
+};
+const placeText = (u) => [districtName(u.district, regionOf(u)), regionOf(u) && !String(u.district || '').startsWith('г. ') ? regionShort(regionOf(u)) : ''].filter(Boolean).join(', ');
+// Player number (ID): '10023' / 'ID 10023' / '#10023' → the player, in any region
+const parseNo = (v) => { const m = String(v || '').match(/(\d{3,9})/); return m ? Number(m[1]) : null; };
+async function findByNo(store, v) {
+  const no = parseNo(v); if (!no) return null;
+  return (await store.listUsers()).find((u) => Number(u.playerNo) === no) || null;
+}
+// Not a <form>: it is also used inside the match form
+const idBox = (id, label) => `<div class="row" style="gap:8px;align-items:stretch">
+  <input id="${id}" class="input grow" inputmode="numeric" enterkeyhint="search" autocomplete="off" placeholder="${label}" aria-label="${label}" style="margin:0">
+  <button type="button" class="btn ghost sm" data-idgo="${id}" style="height:auto">${L('Найти', 'Topish')}</button></div>`;
+const onIdBox = (root, id, fn) => {
+  const inp = root.querySelector('#' + id); if (!inp) return;
+  const run = () => fn(inp.value);
+  root.querySelector(`[data-idgo="${id}"]`).addEventListener('click', run);
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+};
 // Birth years for 16+ (2010 … 1950)
 const BIRTH_YEARS = Array.from({ length: 2010 - 1950 + 1 }, (_, i) => 2010 - i);
 const TIMES = [['утро', 'Утро', 'Ertalab'], ['день', 'День', 'Kunduzi'], ['вечер', 'Вечер', 'Kechqurun'], ['выходные', 'Выходные', 'Dam olish kunlari']];
@@ -42,6 +57,23 @@ async function act(btn, fn) {
 // =====================================================================
 // Login
 // =====================================================================
+// User agreement: full text in a sheet; the checkbox that must be ticked before saving
+export function termsSheet() {
+  sheet(`<h2 class="h">${termsTitle()}</h2><div class="small">${termsHtml()}</div>
+    <button class="btn ball block mt" data-close>${L('Закрыть', 'Yopish')}</button>`);
+}
+// Public page with the agreement (also the privacy-policy link for app stores): ace-tennis.uz/#/terms
+export const termsPage = {
+  render(_, store) {
+    return `<div class="pagehead">${back(store.me() ? '#/home' : '#/login', true)}<h1 class="title" style="font-size:22px">${termsTitle()}</h1></div>
+      <div class="wrap"><div class="card">${termsHtml()}</div></div>`;
+  },
+};
+const termsCheck = (id, checked = false) => `<label class="row mt small" style="gap:10px;align-items:flex-start;cursor:pointer">
+  <input type="checkbox" id="${id}" ${checked ? 'checked' : ''} required style="width:22px;height:22px;flex-shrink:0;margin:0;accent-color:var(--court)">
+  <span>${L('Я прочитал(а) и принимаю', 'O‘qidim va qabul qilaman:')} <button type="button" class="linkbtn" data-terms style="all:unset;text-decoration:underline;font-weight:800;cursor:pointer">${L('Пользовательское соглашение', 'Foydalanuvchi kelishuvi')}</button>${L(', в том числе согласие на обработку персональных данных и условия для тренеров', ', shu jumladan shaxsiy ma’lumotlarni qayta ishlashga rozilik va murabbiylar uchun shartlar')}</span></label>`;
+const bindTerms = (root) => root.querySelectorAll('[data-terms]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); termsSheet(); }));
+
 export const login = {
   render(_, store) {
     const cfg = window.ACE_CONFIG || {};
@@ -50,7 +82,7 @@ export const login = {
     const showSms = store.mode === 'demo' || cfg.smsLogin || (!tg && !mail);
     return `<div class="hero" style="min-height:48vh;display:flex;flex-direction:column;justify-content:flex-end;gap:14px">
       <div class="brand" style="font-size:30px">${logo(56)} Ace Tennis</div>
-      <div class="sub" style="font-size:16px">${L('Сообщество любителей тенниса Намангана: рейтинг, соперники, тренеры, турниры', 'Namangan tennis havaskorlari jamoasi: reyting, raqiblar, murabbiylar, turnirlar')}</div>
+      <div class="sub" style="font-size:16px">${L('Сообщество любителей тенниса Узбекистана: рейтинг, соперники, тренеры, турниры', 'O‘zbekiston tennis havaskorlari jamoasi: reyting, raqiblar, murabbiylar, turnirlar')}</div>
     </div>
     <div class="wrap">
       ${mail ? `<div class="card">
@@ -109,6 +141,8 @@ export const login = {
       let mode = 'in';
       const pw = root.querySelector('#pw');
       root.querySelectorAll('#mode button').forEach((b) => b.addEventListener('click', () => {
+        // Registration: the e-mail is confirmed with a code first, then the password is created
+        if (b.dataset.m === 'up' && store.signUpCode) { emailCodeSheet(store, root.querySelector('#em').value.trim().toLowerCase(), 'signup'); return; }
         mode = b.dataset.m;
         root.querySelectorAll('#mode button').forEach((x) => x.classList.toggle('on', x === b));
         root.querySelector('#mailBtn').textContent = mode === 'up' ? L('Зарегистрироваться', 'Ro‘yxatdan o‘tish') : L('Войти', 'Kirish');
@@ -190,31 +224,34 @@ export const login = {
     }));
     root.querySelector('[data-lang]').addEventListener('click', () => { setLang(getLang() === 'ru' ? 'uz' : 'ru'); rerender(); });
     root.querySelector('[data-coach-req]')?.addEventListener('click', () => coachRequestSheet(store));
-    root.querySelector('[data-forgot]')?.addEventListener('click', () => forgotSheet(store, root.querySelector('#em')?.value.trim().toLowerCase() || ''));
+    root.querySelector('[data-forgot]')?.addEventListener('click', () => emailCodeSheet(store, root.querySelector('#em')?.value.trim().toLowerCase() || '', 'reset'));
   },
 };
 
-// Forgotten password: step 1 — e-mail, step 2 — code from the letter + new password
-function forgotSheet(store, email0) {
-  sheet(`<h2 class="h">${L('Восстановление пароля', 'Parolni tiklash')}</h2>
+// E-mail code in two steps (step 1 — e-mail, step 2 — code from the letter + password):
+//  'signup' — registration: the code proves that the mailbox exists and belongs to the user;
+//  'reset'  — forgotten password.
+function emailCodeSheet(store, email0, kind) {
+  const up = kind === 'signup';
+  sheet(`<h2 class="h">${up ? L('Регистрация', 'Ro‘yxatdan o‘tish') : L('Восстановление пароля', 'Parolni tiklash')}</h2>
     <form id="fp1">
-      <div class="muted">${L('Мы отправим на почту код подтверждения.', 'Pochtaga tasdiqlash kodini yuboramiz.')}</div>
+      <div class="muted">${up ? L('Введите почту — мы пришлём на неё код. Так мы проверим, что почта настоящая и ваша.', 'Pochtangizni kiriting — unga kod yuboramiz. Shunday qilib pochta haqiqiy va sizniki ekanini tekshiramiz.') : L('Мы отправим на почту код подтверждения.', 'Pochtaga tasdiqlash kodini yuboramiz.')}</div>
       <label class="f" for="fem">${L('Электронная почта', 'Elektron pochta')}</label>
-      <input id="fem" class="input" type="email" inputmode="email" autocapitalize="off" spellcheck="false" value="${esc(email0)}" required>
+      <input id="fem" class="input" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@gmail.com" value="${esc(email0)}" required>
       <button class="btn ball block mt" id="fpSend">${L('Получить код', 'Kod olish')}</button>
     </form>
     <form id="fp2" hidden>
       <div class="muted" id="fpHint"></div>
       <label class="f" for="fcode">${L('Код из письма', 'Xatdagi kod')}</label>
       <input id="fcode" class="input" inputmode="numeric" autocomplete="one-time-code" maxlength="10" required>
-      <label class="f" for="fpw">${L('Новый пароль', 'Yangi parol')}</label>
-      <input id="fpw" class="input" type="password" autocomplete="new-password" minlength="6" required>
-      <button class="btn ball block mt" id="fpSave">${L('Сохранить и войти', 'Saqlash va kirish')}</button>
+      <label class="f" for="fpw">${up ? L('Придумайте пароль', 'Parol o‘ylab toping') : L('Новый пароль', 'Yangi parol')}</label>
+      <input id="fpw" class="input" type="password" autocomplete="new-password" minlength="6" required placeholder="${L('Минимум 6 символов', 'Kamida 6 belgi')}">
+      <button class="btn ball block mt" id="fpSave">${up ? L('Продолжить', 'Davom etish') : L('Сохранить и войти', 'Saqlash va kirish')}</button>
       <button type="button" class="btn ghost block mt" id="fpAgain">${L('Отправить код ещё раз', 'Kodni qayta yuborish')}</button>
     </form>`, (el, close) => {
     let email = '';
     const send = (btn) => act(btn, async () => {
-      await store.resetPassword(email);
+      await (up ? store.signUpCode(email) : store.resetPassword(email));
       el.querySelector('#fp1').hidden = true; el.querySelector('#fp2').hidden = false;
       el.querySelector('#fpHint').textContent = L(`Код отправлен на ${email}. Проверьте также папку «Спам».`, `Kod ${email} manziliga yuborildi. «Spam» papkasini ham tekshiring.`);
       el.querySelector('#fcode').focus();
@@ -231,8 +268,8 @@ function forgotSheet(store, email0) {
       if (code.length < 6) { toast(L('Введите код из письма', 'Xatdagi kodni kiriting')); return; }
       if (pw.length < 6) { toast(L('Пароль — минимум 6 символов', 'Parol kamida 6 belgi')); return; }
       act(el.querySelector('#fpSave'), async () => {
-        const r = await store.confirmReset(email, code, pw);
-        close(); toast(L('Пароль изменён', 'Parol o‘zgartirildi'));
+        const r = await (up ? store.confirmSignUp(email, code, pw) : store.confirmReset(email, code, pw));
+        close(); toast(up ? L('Почта подтверждена', 'Pochta tasdiqlandi') : L('Пароль изменён', 'Parol o‘zgartirildi'));
         go(r.user?.role === 'admin' ? '#/admin' : profileDone(r.user) ? '#/home' : '#/onboarding');
       });
     });
@@ -252,15 +289,18 @@ function coachRequestSheet(store) {
       <select id="cex" class="input" required><option value="">—</option>${EXPERIENCE.map(([v, ru, uz]) => `<option value="${v}">${esc(L(ru, uz))}</option>`).join('')}</select>
       <label class="f" for="cab">${L('О себе: где тренируете, с кем работаете, цена', 'O‘zingiz haqingizda: qayerda, kim bilan, narx')}</label>
       <textarea id="cab" class="input" maxlength="1000"></textarea>
+      ${termsCheck('cterms')}
       <div class="grid2 mt"><button type="button" class="btn ghost" data-close>${L('Отмена', 'Bekor')}</button><button class="btn ball" id="crSend">${L('Отправить', 'Yuborish')}</button></div>
     </form>`, (el, close) => {
+    bindTerms(el);
     el.querySelector('#crf').addEventListener('submit', (e) => {
       e.preventDefault();
+      if (!el.querySelector('#cterms').checked) { toast(L('Примите пользовательское соглашение', 'Foydalanuvchi kelishuvini qabul qiling')); return; }
       const v = (id) => el.querySelector('#' + id).value.trim();
       const phone = normPhone(v('cph'));
       if (!phone) { toast(L('Введите номер в формате +998 90 123 45 67', 'Raqamni +998 90 123 45 67 shaklida kiriting')); return; }
       act(el.querySelector('#crSend'), async () => {
-        await store.coachRequest({ firstName: v('cfn'), lastName: v('cln'), phone, experience: +v('cex') || null, about: v('cab') });
+        await store.coachRequest({ firstName: v('cfn'), lastName: v('cln'), phone, experience: +v('cex') || null, about: v('cab'), termsVer: TERMS_VERSION });
         close();
         sheet(`<h2 class="h">${L('Заявка отправлена', 'Ariza yuborildi')}</h2>
           <div>${L('Администратор Ace Tennis позвонит вам. После одобрения нажмите «Регистрация», введите почту и пароль, а в анкете укажите этот же номер телефона — профиль тренера включится автоматически.', 'Administrator sizga qo‘ng‘iroq qiladi. Tasdiqlangach «Ro‘yxatdan o‘tish»ni bosing va anketada shu raqamni kiriting — murabbiy profili avtomatik yoqiladi.')}</div>
@@ -276,11 +316,14 @@ function coachRequestSheet(store) {
 export const onboarding = {
   render(_, store) {
     const u = store.me(); const isCoach = u.role === 'coach'; const isNew = !profileDone(u);
+    // The profile is complete, only the (new version of the) agreement is not accepted yet
+    const termsOnly = isNew && profileDone({ ...u, termsVer: TERMS_VERSION });
     const opt = (list, val) => list.map(([v, ru, uz]) => `<option value="${esc(v)}" ${v === val ? 'selected' : ''}>${esc(L(ru, uz))}</option>`).join('');
     const c = u.coach || {};
     return `<div class="pagehead">${isNew ? '' : back('#/profile', true)}<h1 class="title">${isNew ? L('Анкета', 'Anketa') : L('Редактировать', 'Tahrirlash')}</h1></div>
     <form class="wrap" id="pf">
-      ${isNew ? `<div class="card hl"><div class="strong">${L('Добро пожаловать в Ace Tennis!', 'Ace Tennis’ga xush kelibsiz!')}</div><div class="muted">${L('Заполните анкету — по ней соперники смогут найти вас по уровню и времени.', 'Anketani to‘ldiring — raqiblar sizni daraja va vaqt bo‘yicha topadi.')}</div></div>` : ''}
+      ${termsOnly ? `<div class="card hl"><div class="strong">${L('Примите пользовательское соглашение', 'Foydalanuvchi kelishuvini qabul qiling')}</div><div class="muted">${L('Мы добавили соглашение с правилами сервиса. Прочитайте его, поставьте отметку внизу и нажмите «Сохранить».', 'Biz xizmat qoidalari bilan kelishuv qo‘shdik. Uni o‘qing, pastda belgi qo‘ying va «Saqlash»ni bosing.')}</div><button type="button" class="btn ghost sm mt" data-terms>${L('Читать соглашение', 'Kelishuvni o‘qish')}</button></div>`
+      : isNew ? `<div class="card hl"><div class="strong">${L('Добро пожаловать в Ace Tennis!', 'Ace Tennis’ga xush kelibsiz!')}</div><div class="muted">${L('Заполните анкету — по ней соперники смогут найти вас по уровню и времени.', 'Anketani to‘ldiring — raqiblar sizni daraja va vaqt bo‘yicha topadi.')}</div></div>` : ''}
       <div class="card">
         <div class="row">${avatar(u, 'lg')}<div class="grow"><label class="btn ghost sm" style="cursor:pointer">${L('Загрузить фото', 'Rasm yuklash')}<input type="file" accept="image/*" id="photo" hidden></label><div class="muted small" style="margin-top:6px">${L('Фото обязательно', 'Rasm majburiy')}</div></div></div>
         <div class="grid2">
@@ -294,8 +337,10 @@ export const onboarding = {
           <div><label class="f" for="g">${L('Пол', 'Jinsi')}*</label><select id="g" class="input" required><option value="">—</option>${opt([['м', 'Мужской', 'Erkak'], ['ж', 'Женский', 'Ayol']], u.gender)}</select></div>
           <div><label class="f" for="by">${L('Год рождения', 'Tug‘ilgan yil')}*</label><select id="by" class="input" required><option value="">—</option>${BIRTH_YEARS.map((y) => `<option value="${y}" ${Number(u.birthYear) === y ? 'selected' : ''}>${y}</option>`).join('')}</select></div>
         </div>
-        <label class="f" for="d">${L('Район', 'Tuman')}*</label>
-        <select id="d" class="input" required><option value="">—</option>${opt(DISTRICTS, u.district)}</select>
+        <label class="f" for="rg">${L('Область', 'Viloyat')}*</label>
+        <select id="rg" class="input" required><option value="">—</option>${REGIONS.map((r) => `<option value="${r.code}" ${r.code === regionOf(u) ? 'selected' : ''}>${esc(L(r.ru, r.uz))}</option>`).join('')}</select>
+        <label class="f" for="d">${L('Город или район', 'Shahar yoki tuman')}*</label>
+        <select id="d" class="input" required>${districtOptions(regionOf(u), u.district)}</select>
         <div class="grid2">
           <div><label class="f" for="y">${isCoach ? L('Опыт тренера', 'Murabbiylik tajribasi') : L('Сколько играете', 'Qancha o‘ynaysiz')}*</label><select id="y" class="input" required><option value="">—</option>${opt(EXPERIENCE.map(([v, ru, uz]) => [String(v), ru, uz]), String(u.years ?? ''))}</select></div>
           <div><label class="f" for="h">${L('Ведущая рука', 'Asosiy qo‘l')}</label><select id="h" class="input"><option value="">—</option>${opt([['правша', 'Правша', 'O‘naqay'], ['левша', 'Левша', 'Chapaqay']], u.hand)}</select></div>
@@ -309,11 +354,15 @@ export const onboarding = {
         <label class="f" for="sp">${L('Специализация (через запятую)', 'Mutaxassislik (vergul bilan)')}*</label><input id="sp" class="input" required value="${esc((c.specialization || []).join(', '))}">
         <label class="f" for="ww">${L('С кем работаете', 'Kim bilan ishlaysiz')}*</label><select id="ww" class="input" required><option value="">—</option>${opt([['дети', 'Дети', 'Bolalar'], ['взрослые', 'Взрослые', 'Kattalar'], ['дети и взрослые', 'Дети и взрослые', 'Bolalar va kattalar']], c.worksWith)}</select>
       </div>` : ''}
-      <button class="btn ball block" type="submit">${isNew ? L('Начать играть', 'O‘ynashni boshlash') : L('Сохранить', 'Saqlash')}</button>
+      <div class="card">${termsCheck('terms', u.termsVer === TERMS_VERSION)}</div>
+      <button class="btn ball block" type="submit">${isNew && !termsOnly ? L('Начать играть', 'O‘ynashni boshlash') : L('Сохранить', 'Saqlash')}</button>
     </form>`;
   },
   mount(root, _, store) {
     let photo = store.me().photo;
+    bindTerms(root);
+    const rg = root.querySelector('#rg');
+    rg.addEventListener('change', () => { root.querySelector('#d').innerHTML = districtOptions(rg.value, ''); });
     root.querySelectorAll('#times .chip').forEach((c) => c.addEventListener('click', () => { c.classList.toggle('on'); c.setAttribute('aria-pressed', c.classList.contains('on')); }));
     root.querySelector('#photo').addEventListener('change', async (e) => {
       const f = e.target.files[0]; if (!f) return;
@@ -327,11 +376,13 @@ export const onboarding = {
       const availability = [...root.querySelectorAll('#times .chip.on')].map((c) => c.dataset.v);
       if (!availability.length) { toast(L('Выберите удобное время', 'Qulay vaqtni tanlang')); return; }
       if (!photo) { toast(L('Добавьте фото', 'Rasm qo‘shing')); return; }
+      if (!root.querySelector('#terms').checked) { toast(L('Примите пользовательское соглашение', 'Foydalanuvchi kelishuvini qabul qiling')); root.querySelector('#terms').focus(); return; }
       const phone = normPhone(v('ph'));
       if (!phone) { toast(L('Введите номер в формате +998 90 123 45 67', 'Raqamni +998 90 123 45 67 shaklida kiriting')); root.querySelector('#ph').focus(); return; }
       const me = store.me();
-      const patch = { firstName: v('fn'), lastName: v('ln'), gender: v('g'), birthYear: +v('by'), district: v('d'), years: +v('y'), hand: v('h'), availability, photo };
+      const patch = { firstName: v('fn'), lastName: v('ln'), gender: v('g'), birthYear: +v('by'), region: v('rg'), district: v('d'), years: +v('y'), hand: v('h'), availability, photo };
       if (phone !== normPhone(me.phone)) patch.phone = phone;
+      if (me.termsVer !== TERMS_VERSION) patch.termsVer = TERMS_VERSION;
       if (me.role !== 'coach') patch.selfLevel = v('lv');
       else patch.coach = { ...(me.coach || {}), price: +v('pr'), specialization: v('sp').split(',').map((s) => s.trim()).filter(Boolean), worksWith: v('ww'), experience: +v('y') };
       const wasNew = !profileDone(me);
@@ -456,7 +507,7 @@ export const home = {
     const upcoming = chs.filter((c) => c.status === 'accepted' && new Date(c.at) > new Date(Date.now() - 3 * 3600e3));
     const myTour = tours.find((t) => t.status === 'running' && t.entries.some((e) => e.userId === me.id));
     // Open registration in my league → a banner on the home screen
-    const openTours = tours.filter((t) => t.status === 'registration' && t.league === me.league && !t.entries.some((e) => e.userId === me.id));
+    const openTours = tours.filter((t) => t.status === 'registration' && t.league === me.league && (t.region || 'namangan') === regionOf(me) && !t.entries.some((e) => e.userId === me.id));
     const isCoach = me.role === 'coach';
     const sent = chs.filter((c) => c.fromId === me.id && (c.status === 'sent' || (c.status === 'declined' && new Date(c.at) > new Date(Date.now() - 3 * 864e5))));
     const outCards = [
@@ -493,7 +544,7 @@ export const home = {
       ${outCards ? `<div class="card"><h2 class="h">${L('Мои записи', 'Mening yozuvlarim')}</h2><div class="list">${outCards}</div></div>` : ''}
       <div class="grid2">
         <a href="#/tournaments" class="card dark" style="text-decoration:none;display:flex;flex-direction:column;gap:6px">${icon.trophy.replace('currentColor', '#D8F244')}<span class="num" style="font-size:18px;text-transform:uppercase">${L('Турниры', 'Turnirlar')}</span><span class="sub small">${myTour ? L('Вы участвуете', 'Siz ishtirokchisiz') : L('Заявки и сетки', 'Arizalar va to‘rlar')}</span></a>
-        <a href="#/news" class="card" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:6px">${icon.news}<span class="num" style="font-size:18px;text-transform:uppercase">${L('Новости', 'Yangiliklar')}</span><span class="muted small">${L('Итоги, фото, анонсы', 'Natijalar, rasmlar')}</span></a>
+        <a href="#/news" class="card" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:6px">${icon.news}<span class="num" style="font-size:18px;text-transform:uppercase">${L('Новости', 'Yangiliklar')}</span><span class="muted small">${L('Местные и мировые', 'Mahalliy va jahon')}</span></a>
       </div>
       ${sugg && !isCoach ? `<div class="card"><h2 class="h">${L('Вам подходит соперник', 'Sizga mos raqib')}</h2>
         <a href="#/profile/${sugg.id}" class="row" style="text-decoration:none;color:inherit">${avatar(sugg)}<div class="grow"><div class="strong">${esc(fullName(sugg))}</div><div class="muted">${L('УС', 'KD')} ${formatStrength(sugg.rating)} · ${leagueName(sugg.league)} · ${esc(sugg.availability.join(', '))}</div></div></a>
@@ -577,7 +628,9 @@ export const add = {
     const tab = params[0] === 'training' ? 'training' : 'match';
     const q = new URLSearchParams(params[1] || '');
     const me = store.me();
-    const players = (await store.listUsers()).filter((u) => u.id !== me.id && u.role !== 'admin');
+    // Opponents from my region; a friend from another region is added by his ID
+    const myRg = regionOf(me);
+    const players = (await store.listUsers()).filter((u) => u.id !== me.id && u.role !== 'admin' && (!myRg || regionOf(u) === myRg || u.id === q.get('opp')));
     const coaches = (await store.listUsers({ role: 'coach' })).filter((u) => u.id !== me.id);
     const opts = (list, sel) => `<option value="">${L('Выберите', 'Tanlang')}</option>` + list.sort((a, b) => fullName(a).localeCompare(fullName(b))).map((u) => `<option value="${u.id}" ${u.id === sel ? 'selected' : ''}>${esc(fullName(u))} · ${formatStrength(u.rating)}</option>`).join('');
     const now = toLocalInput(new Date());
@@ -595,6 +648,8 @@ export const add = {
             <label class="f" for="o1">${L('Соперник 1', 'Raqib 1')}</label><select id="o1" class="input">${opts(players)}</select>
             <label class="f" for="o2">${L('Соперник 2', 'Raqib 2')}</label><select id="o2" class="input">${opts(players)}</select>
           </div>
+          <label class="f" for="byNo">${L('Игрок из другой области', 'Boshqa viloyatdan o‘yinchi')}</label>
+          ${idBox('byNo', L('Введите его ID из профиля', 'Profilidagi ID raqamini kiriting'))}
           <label class="f" for="when">${L('Дата и время', 'Sana va vaqt')}</label><input id="when" type="datetime-local" class="input" value="${now}" max="${now}">
         </div>
         <div class="card dark">
@@ -627,6 +682,18 @@ export const add = {
     if (mf) {
       let n = 3; let type = 'single';
       const me = store.me();
+      // A friend from another region: found by ID and added to every player list
+      onIdBox(root, 'byNo', async (v) => {
+        const u = await findByNo(store, v);
+        if (!u || u.id === me.id || u.role === 'admin') { toast(L('Игрок с таким ID не найден', 'Bunday ID li o‘yinchi topilmadi')); return; }
+        ['opp', 'partner', 'o1', 'o2'].forEach((sid) => {
+          const sel = root.querySelector('#' + sid);
+          if (sel && !sel.querySelector(`option[value="${u.id}"]`)) sel.insertAdjacentHTML('beforeend', `<option value="${u.id}">${esc(fullName(u))} · ${esc(regionShort(regionOf(u)))}</option>`);
+        });
+        if (type === 'single') { root.querySelector('#opp').value = u.id; root.querySelector('#opp').dispatchEvent(new Event('change')); }
+        root.querySelector('#byNo').value = '';
+        toast(type === 'single' ? L(`Соперник: ${fullName(u)}`, `Raqib: ${fullName(u)}`) : L(`${fullName(u)} добавлен в списки`, `${fullName(u)} ro‘yxatlarga qo‘shildi`));
+      });
       const names = () => {
         if (type === 'single') return [L('Вы', 'Siz'), shortName(store.user(root.querySelector('#opp').value)) || L('Соперник', 'Raqib')];
         return [L('Вы', 'Siz') + ' / ' + (shortName(store.user(root.querySelector('#partner').value)) || '…'),
@@ -701,6 +768,47 @@ function sparkline(points) {
     <path d="${d} L${w} ${h} L0 ${h} Z" fill="#D8F244" fill-opacity=".35"/><path d="${d}" fill="none" stroke="#0E3B2C" stroke-width="2.5" stroke-linejoin="round"/></svg>`;
 }
 
+// Awards: round cups for tournaments (gold / silver / bronze), shields for season titles
+const CUP = '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>';
+const cupIcon = (size, sw = 2) => `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${CUP}</svg>`;
+const CUPS = {
+  tour_win: { bg: '#F2C53D', bd: '#B8860B', fg: '#5A3D00', ru: 'Победитель', uz: 'G‘olib' },
+  tour_final: { bg: '#D9DEE3', bd: '#8A949E', fg: '#39424A', ru: 'Финалист', uz: 'Finalchi' },
+  tour_semi: { bg: '#E3A774', bd: '#95582A', fg: '#4A2508', ru: 'Полуфинал', uz: 'Yarim final' },
+};
+const SEASON_CODES = ['season_champion', 'season_final'];
+const shieldSvg = (champ, w = 64) => `<svg aria-hidden="true" width="${w}" height="${Math.round(w * 8 / 7)}" viewBox="0 0 70 80"><path d="M35 3 L66 13 V40 C66 60 52 72 35 77 C18 72 4 60 4 40 V13 Z" fill="${champ ? '#D8F244' : '#0E3B2C'}" stroke="${champ ? '#FFFFFF' : '#D8F244'}" stroke-width="3"/><path transform="translate(20 17) scale(1.25)" d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9z" fill="${champ ? '#0E3B2C' : 'none'}" stroke="${champ ? '#0E3B2C' : '#D8F244'}" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+// 'Осенний 26 · Золото' → { season: 'ОСЕНЬ 26', league: 'Золото' }
+const seasonShort = (detail = '') => {
+  const parts = detail.split(' · '); const sz = parts[0] || ''; const lg = parts.length > 1 ? parts[parts.length - 1] : '';
+  const [nm = '', yy = ''] = sz.split(' ');
+  const map = { 'Весенний': ['ВЕСНА', 'BAHOR'], 'Летний': ['ЛЕТО', 'YOZ'], 'Осенний': ['ОСЕНЬ', 'KUZ'], 'Зимний': ['ЗИМА', 'QISH'] };
+  const lgMap = { 'Новички': 'novice', 'Бронза': 'bronze', 'Серебро': 'silver', 'Золото': 'gold', 'Мастерс': 'masters' };
+  return { season: `${map[nm] ? L(map[nm][0], map[nm][1]) : nm.toUpperCase()} ${yy}`.trim(), league: lgMap[lg] ? leagueName(lgMap[lg]) : lg };
+};
+function awardsHtml(ach) {
+  const titles = ach.filter((a) => SEASON_CODES.includes(a.code));
+  const cups = ach.filter((a) => CUPS[a.code]);
+  const rest = ach.filter((a) => !SEASON_CODES.includes(a.code) && !CUPS[a.code]);
+  const count = (code) => cups.filter((a) => a.code === code).length;
+  const titleCards = titles.length ? `<div class="card dark"><div class="row between"><h2 class="h" style="margin:0;color:var(--ball)">${L('Титулы сезона', 'Mavsum unvonlari')}</h2><span class="sub small">${titles.length}</span></div>
+    <div class="grid2 mt">${titles.map((a) => { const champ = a.code === 'season_champion'; const sp = seasonShort(a.detail);
+      return `<div style="background:var(--court-2);border-radius:14px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center">
+        ${shieldSvg(champ)}<span class="strong small" style="${champ ? 'background:var(--ball);color:var(--court)' : 'border:1.5px solid var(--ball);color:var(--ball)'};border-radius:6px;padding:1px 9px;letter-spacing:.06em">${esc(sp.season)}</span>
+        <span class="strong small" style="color:#fff">${champ ? L('Чемпион сезона', 'Mavsum chempioni') : L('Финалист сезона', 'Mavsum finalchisi')}</span><span class="sub small">${esc(sp.league)}</span></div>`; }).join('')}</div></div>` : '';
+  const cupCard = cups.length ? `<div class="card"><div class="row between"><h2 class="h" style="margin:0">${L('Турнирные кубки', 'Turnir kuboklari')}</h2><span class="muted strong">${cups.length}</span></div>
+    <div class="grid3 mt">${Object.entries(CUPS).map(([code, c]) => { const n = count(code);
+      return `<div class="center" style="${n ? '' : 'opacity:.35'}"><div style="position:relative;width:64px;height:64px;margin:0 auto;border-radius:50%;background:${c.bg};border:4px solid ${c.bd};box-sizing:border-box;display:flex;align-items:center;justify-content:center;color:${c.fg}">${cupIcon(30)}
+        ${n ? `<span style="position:absolute;right:-6px;top:-6px;background:var(--court);color:var(--ball);font-size:12px;font-weight:800;border-radius:10px;padding:2px 7px">×${n}</span>` : ''}</div>
+        <div class="small strong" style="margin-top:6px">${L(c.ru, c.uz)}</div></div>`; }).join('')}</div>
+    <div class="list mt">${cups.slice(0, 5).map((a) => { const c = CUPS[a.code];
+      return `<div class="row" style="gap:12px"><span style="width:30px;height:30px;flex-shrink:0;border-radius:50%;background:${c.bg};color:${c.fg};display:flex;align-items:center;justify-content:center">${cupIcon(16, 2.2)}</span><div class="grow"><div class="strong ellipsis">${esc((a.detail || '').split(' · ')[0])}</div><div class="muted small">${L(c.ru, c.uz)} · ${fmtDate(a.createdAt)}</div></div></div>`; }).join('')}</div></div>` : '';
+  const restCard = `<div class="card"><div class="row between"><h2 class="h" style="margin:0">${L('Достижения', 'Yutuqlar')}</h2><span class="muted strong">${rest.length}</span></div>
+    ${rest.length ? `<div class="grid3 mt">${rest.slice(0, 6).map((a) => `<div class="center"><div class="av" style="width:56px;height:56px;margin:0 auto;${a.code.includes('champion') || a.code === 'q_top1' ? 'background:var(--court);border:3px solid var(--ball)' : 'background:var(--ball);color:var(--court)'}">${a.code.includes('champion') || a.code === 'q_top1' ? '1' : a.code.startsWith('matches') ? a.code.slice(7) : a.code.includes('top10') ? '10' : a.code.includes('top3') ? '3' : icon.bolt}</div><div class="small strong" style="margin-top:6px;line-height:1.25">${esc(a.title)}</div><div class="muted small">${esc(a.detail || fmtDate(a.createdAt))}</div></div>`).join('')}</div>`
+    : `<div class="empty">${L('Сыграйте матчи, чтобы получить первые достижения', 'Birinchi yutuqlar uchun o‘yin o‘ynang')}</div>`}</div>`;
+  return titleCards + cupCard + restCard;
+}
+
 export const profile = {
   async render(params, store) {
     const me = store.me();
@@ -724,7 +832,8 @@ export const profile = {
         ${own ? `<a class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" href="#/edit">${L('Редактировать', 'Tahrirlash')}</a>` : `<button class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" data-complain>${L('Пожаловаться', 'Shikoyat')}</button>`}</div>
       <div class="row mt" style="gap:16px">${avatar(u, 'lg')}<div class="grow"><h1 class="title" style="font-size:26px;text-transform:none">${esc(fullName(u))}</h1>
         <div class="sub">${isCoach ? L('Тренер', 'Murabbiy') : L('Любитель', 'Havaskor')} · ${isCoach ? yearsText(u.coach?.experience || u.years, 'exp') : yearsText(u.years)}</div>
-        <div class="sub">${esc([u.hand, districtName(u.district)].filter(Boolean).join(' · '))}</div></div></div>
+        <div class="sub">${esc([u.hand, placeText(u)].filter(Boolean).join(' · '))}</div>
+        ${u.playerNo ? `<div class="row" style="gap:8px;margin-top:6px"><span class="tag ball" style="text-transform:none;letter-spacing:.02em">ID ${esc(u.playerNo)}</span>${own ? `<button type="button" class="linkbtn" data-copyid="${esc(u.playerNo)}" style="all:unset;cursor:pointer;color:#C9D8CF;font-size:13px;text-decoration:underline">${L('скопировать', 'nusxalash')}</button>` : ''}</div>` : ''}</div></div>
       <div class="grid3 mt">
         <div class="stat"><div class="num" style="color:var(--ball)">${formatStrength(u.rating)}</div><div class="sub small">${L('уровень силы', 'kuch darajasi')}</div></div>
         <div class="stat"><div class="num">${place ? '#' + place : '—'}</div><div class="sub small">${leagueName(u.league)}</div></div>
@@ -736,9 +845,7 @@ export const profile = {
       ${!own && store.me().role !== 'admin' ? `<div class="grid2 mt"><button class="btn ball" data-challenge>${L('Вызвать', 'Chaqirish')}</button><a class="btn ghost" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.3)" href="#/add/match?opp=${id}">${L('Записать матч', 'O‘yin yozish')}</a></div>` : ''}
     </div>
     <div class="wrap">
-      <div class="card"><div class="row between"><h2 class="h" style="margin:0">${L('Достижения', 'Yutuqlar')}</h2><span class="muted strong">${ach.length}</span></div>
-        ${ach.length ? `<div class="grid3 mt">${ach.slice(0, 6).map((a) => `<div class="center"><div class="av" style="width:56px;height:56px;margin:0 auto;${a.code.includes('champion') || a.code === 'tour_win' ? 'background:var(--court);border:3px solid var(--ball)' : 'background:var(--ball);color:var(--court)'}">${a.code.includes('champion') || a.code === 'tour_win' ? '1' : a.code.startsWith('matches') ? a.code.slice(7) : a.code.includes('top10') ? '10' : a.code.includes('top3') ? '3' : icon.bolt}</div><div class="small strong" style="margin-top:6px;line-height:1.25">${esc(a.title)}</div><div class="muted small">${esc(a.detail || fmtDate(a.createdAt))}</div></div>`).join('')}</div>`
-        : `<div class="empty">${L('Сыграйте матчи, чтобы получить первые достижения', 'Birinchi yutuqlar uchun o‘yin o‘ynang')}</div>`}</div>
+      ${awardsHtml(ach)}
       <div class="card"><div class="row between"><h2 class="h" style="margin:0">${L('Форма', 'Forma')}</h2><span class="muted strong">${u.matches} ${L('матч.', 'o‘yin')} · ${u.wins} ${L('В', 'G')} · ${u.matches - u.wins} ${L('П', 'M')}</span></div>
         <div class="mt">${formBadges(u.form, 'big')}</div>${sparkline(path)}
         <div class="row between muted small" style="margin-top:4px"><span>${L('старт', 'boshlanish')} · ${fmtNum(path[0])}</span><span>${L('сейчас', 'hozir')} · ${fmtNum(u.rating)}</span></div></div>
@@ -750,11 +857,24 @@ export const profile = {
       ${own ? `<div class="card"><h2 class="h">${L('Настройки', 'Sozlamalar')}</h2>
         <div class="kv"><span>${L('Язык', 'Til')}</span><div class="seg" style="width:180px"><button class="${getLang() === 'ru' ? 'on' : ''}" data-l="ru">RU</button><button class="${getLang() === 'uz' ? 'on' : ''}" data-l="uz">UZ</button></div></div>
         ${store.changePassword ? `<button class="btn ghost block mt" data-pw>${L('Сменить пароль', 'Parolni o‘zgartirish')}</button>` : ''}
+        <div class="kv mt"><span>${L('Версия приложения', 'Ilova versiyasi')}</span><span class="muted strong">${APP_VERSION}</span></div>
+        <button class="btn block mt" data-update>${L('Проверить обновление', 'Yangilanishni tekshirish')}</button>
+        <button class="btn ghost block mt" data-terms>${termsTitle()}</button>
         <button class="btn ghost block mt" data-logout>${L('Выйти', 'Chiqish')}</button></div>` : ''}
     </div>`;
   },
   mount(root, params, store) {
     const id = params[0] || store.me().id;
+    bindTerms(root);
+    root.querySelector('[data-copyid]')?.addEventListener('click', async (e) => {
+      const v = e.currentTarget.dataset.copyid;
+      try { await navigator.clipboard.writeText(v); toast(L(`ID ${v} скопирован — отправьте его другу`, `ID ${v} nusxalandi — do‘stingizga yuboring`)); } catch { toast(`ID ${v}`); }
+    });
+    root.querySelector('[data-update]')?.addEventListener('click', (e) => act(e.currentTarget, async () => {
+      const v = await newerVersion();
+      if (!v) { toast(L('У вас последняя версия', 'Sizda oxirgi versiya')); return; }
+      toast(L(`Обновляем до версии ${v}…`, `${v} versiyasiga yangilanmoqda…`)); await updateApp();
+    }));
     root.querySelector('[data-challenge]')?.addEventListener('click', () => challengeSheet(store, id));
     root.querySelector('[data-pw]')?.addEventListener('click', () => sheet(`<h2 class="h">${L('Новый пароль', 'Yangi parol')}</h2>
       <form id="cpw"><input id="npw" class="input" type="password" autocomplete="new-password" minlength="6" required placeholder="${L('Минимум 6 символов', 'Kamida 6 belgi')}">
@@ -773,30 +893,35 @@ export const profile = {
 // =====================================================================
 // Rating
 // =====================================================================
-const rState = { period: 'quarter', league: null, view: 'players' };
+const rState = { period: 'quarter', league: null, view: 'players', region: '' };
 export const rating = {
   async render(_, store) {
     const me = store.me();
-    if (rState.league === null) rState.league = me.role === 'player' && me.matches > 0 ? me.league : 'gold';
+    // My region's league of my level first; other levels by the chips. Other regions — later (admin can choose).
+    if (rState.league === null) rState.league = me.role === 'player' ? (me.league || 'novice') : 'gold';
+    const isAdmin = me.role === 'admin';
+    if (!rState.region || !isAdmin) rState.region = isAdmin ? (rState.region || 'namangan') : regionOf(me);
+    const rg = rState.region;
+    const regionBar = isAdmin ? `<select class="input" id="rRegion" aria-label="${L('Область', 'Viloyat')}">${REGIONS.map((r) => `<option value="${r.code}" ${rg === r.code ? 'selected' : ''}>${esc(regionShort(r.code))}</option>`).join('')}</select>` : '';
     const seg = `<div class="seg"><button class="${rState.view === 'players' ? 'on' : ''}" data-view="players">${L('Игроки', 'O‘yinchilar')}</button><button class="${rState.view === 'coaches' ? 'on' : ''}" data-view="coaches">${L('Тренеры', 'Murabbiylar')}</button><button class="${rState.view === 'fair' ? 'on' : ''}" data-view="fair">Fair Play</button></div>`;
-    const head = `<div class="pagehead" style="justify-content:space-between"><h1 class="title">${L('Рейтинг', 'Reyting')}</h1><span class="muted strong">${rState.period === 'year' ? L(`${new Date().getFullYear()} год`, `${new Date().getFullYear()} yil`) : seasonLabel()}</span></div>`;
+    const head = `<div class="pagehead" style="justify-content:space-between"><h1 class="title">${L('Рейтинг', 'Reyting')}</h1><span class="muted strong" style="text-align:right">${esc(regionShort(rg))}<br>${rState.period === 'year' ? L(`${new Date().getFullYear()} год`, `${new Date().getFullYear()} yil`) : seasonLabel()}</span></div>`;
     if (rState.view === 'coaches') {
-      const cs = await store.coachRanking();
-      return `${head}<div class="wrap">${seg}<div class="card" style="padding:0;overflow:hidden">
+      const cs = (await store.coachRanking()).filter((c) => !rg || regionOf(c) === rg);
+      return `${head}<div class="wrap">${regionBar}${seg}<div class="card" style="padding:0;overflow:hidden">
         <div class="rt-row head" style="grid-template-columns:30px 1fr 56px 56px"><span>№</span><span>${L('ТРЕНЕР', 'MURABBIY')}</span><span style="text-align:right">${L('УЧЕН.', 'SHOG.')}</span><span style="text-align:right">${L('ЗАНЯТ.', 'MASHG‘.')}</span></div>
         ${cs.map((c, i) => `<a href="#/coach/${c.id}" class="rt-row ${i < 3 ? 'top' : ''}" style="grid-template-columns:30px 1fr 56px 56px;text-decoration:none;color:inherit"><span class="p">${i + 1}</span><span class="row" style="gap:8px;min-width:0">${avatar(c, 'sm')}<span class="grow"><span class="strong ellipsis" style="display:block">${esc(fullName(c))}</span><span class="stars small">★ ${c.stats.avg ? comma(c.stats.avg) : '—'}</span> <span class="muted small">· ${c.stats.reviews.length} ${L('отз.', 'fikr')}</span></span></span><span style="text-align:right" class="strong">${c.stats.students}</span><span style="text-align:right" class="num">${c.stats.trainings}</span></a>`).join('')}
       </div><div class="muted">${L('Рейтинг тренеров: число учеников, занятий и средняя оценка учеников.', 'Murabbiylar reytingi: shogirdlar, mashg‘ulotlar soni va o‘rtacha baho.')}</div></div>`;
     }
     if (rState.view === 'fair') {
-      const fp = await store.fairplayRanking();
-      return `${head}<div class="wrap">${seg}<div class="card" style="padding:0;overflow:hidden">
+      const fp = (await store.fairplayRanking()).filter((u) => !rg || regionOf(u) === rg);
+      return `${head}<div class="wrap">${regionBar}${seg}<div class="card" style="padding:0;overflow:hidden">
         <div class="rt-row head" style="grid-template-columns:30px 1fr 56px"><span>№</span><span>${L('ИГРОК', 'O‘YINCHI')}</span><span style="text-align:right">FAIR PLAY</span></div>
         ${fp.slice(0, 30).map((u, i) => `<a href="#/profile/${u.id}" class="rt-row ${u.id === me.id ? 'top' : ''}" style="grid-template-columns:30px 1fr 56px;text-decoration:none;color:inherit"><span class="p">${i + 1}</span><span class="row" style="gap:8px;min-width:0">${avatar(u, 'sm')}<span class="strong ellipsis">${esc(fullName(u))}${u.role === 'coach' ? ` <span class="tag soft">${L('Тренер', 'Murabbiy')}</span>` : ''}</span></span><span style="text-align:right" class="num">${fpText(u)}</span></a>`).join('')}
       </div><div class="muted">${L('Оценки соперников после матчей: пунктуальность и честный счёт. Ниже 3,5 — нельзя участвовать в турнирах.', 'Raqiblar bahosi: o‘z vaqtida kelish va halol hisob. 3,5 dan past — turnirlarda qatnashib bo‘lmaydi.')}</div></div>`;
     }
-    const [list, lead] = await Promise.all([store.ranking({ league: rState.league, period: rState.period }), store.leaders()]);
+    const [list, lead] = await Promise.all([store.ranking({ league: rState.league, period: rState.period, region: rg }), store.leaders(rg)]);
     const streakN = lead.streak ? lead.streak.form.match(/^В*/)[0].length : 0;
-    return `${head}<div class="wrap">${seg}
+    return `${head}<div class="wrap">${regionBar}${seg}
       <div class="seg"><button class="${rState.period === 'quarter' ? 'on' : ''}" data-period="quarter">${L('Сезон', 'Mavsum')}</button><button class="${rState.period === 'year' ? 'on' : ''}" data-period="year">${L('Год', 'Yil')}</button></div>
       <div class="chips scroll">${LEAGUES.map((l) => `<button class="chip ${rState.league === l.id ? 'on' : ''}" data-league="${l.id}">${L(l.ru, l.uz)}</button>`).join('')}</div>
       <div class="chips scroll" style="gap:8px">
@@ -820,13 +945,23 @@ export const rating = {
     root.querySelectorAll('[data-period]').forEach((b) => b.addEventListener('click', () => { rState.period = b.dataset.period; rerender(); }));
     root.querySelectorAll('[data-league]').forEach((b) => b.addEventListener('click', () => { rState.league = b.dataset.league; rerender(); }));
     root.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => { rState.view = b.dataset.view; rerender(); }));
+    root.querySelector('#rRegion')?.addEventListener('change', (e) => { rState.region = e.target.value; rerender(); });
   },
 };
+
+// "Find by ID" form → the player's profile
+function bindIdSearch(root, store) {
+  onIdBox(root, 'sNo', async (v) => {
+    const u = await findByNo(store, v);
+    if (!u) { toast(L('Игрок с таким ID не найден', 'Bunday ID li o‘yinchi topilmadi')); return; }
+    go(u.role === 'coach' ? `#/coach/${u.id}` : `#/profile/${u.id}`);
+  });
+}
 
 // =====================================================================
 // Search
 // =====================================================================
-const sState = { tab: 'players', league: 'all', gender: 'all', time: 'all', district: 'all', q: '' };
+const sState = { tab: 'players', league: 'all', gender: 'all', time: 'all', region: null, district: 'all', q: '' };
 export const search = {
   async render(_, store) {
     const me = store.me();
@@ -842,15 +977,21 @@ export const search = {
       </div>`;
     }
     const all = (await store.listUsers({ role: 'player' })).filter((u) => u.id !== me.id);
+    // Players see their own region; other regions only by ID. The admin can choose any region.
+    const isAdmin = me.role === 'admin';
+    if (sState.region === null || !isAdmin) sState.region = isAdmin ? 'all' : (regionOf(me) || 'all');
     const list = all.filter((u) => (sState.league === 'all' || u.league === sState.league) && (sState.gender === 'all' || u.gender === sState.gender)
-      && (sState.time === 'all' || u.availability.includes(sState.time)) && (sState.district === 'all' || u.district === sState.district))
+      && (sState.time === 'all' || u.availability.includes(sState.time)) && (sState.region === 'all' || regionOf(u) === sState.region) && (sState.district === 'all' || u.district === sState.district))
       .sort((a, b) => Math.abs(a.rating - me.rating) - Math.abs(b.rating - me.rating));
     return `<div class="pagehead"><h1 class="title">${L('Поиск', 'Qidiruv')}</h1></div><div class="wrap">${tabs}${qbox}
       <div class="chips scroll">${chip('league', 'all', L('Все лиги', 'Barcha ligalar'))}${LEAGUES.map((l) => chip('league', l.id, L(l.ru, l.uz))).join('')}</div>
       <div class="chips scroll">${chip('time', 'all', L('Любое время', 'Istalgan vaqt'))}${TIMES.map(([v, ru, uz]) => chip('time', v, L(ru, uz))).join('')}</div>
-      <div class="chips scroll">${chip('gender', 'all', L('Все', 'Barchasi'))}${chip('gender', 'м', L('Мужчины', 'Erkaklar'))}${chip('gender', 'ж', L('Женщины', 'Ayollar'))}${chip('district', 'all', L('Все районы', 'Barcha tumanlar'))}${DISTRICTS.map(([v, ru, uz]) => chip('district', v, L(ru, uz))).join('')}</div>
+      <div class="chips scroll">${chip('gender', 'all', L('Все', 'Barchasi'))}${chip('gender', 'м', L('Мужчины', 'Erkaklar'))}${chip('gender', 'ж', L('Женщины', 'Ayollar'))}</div>
+      ${idBox('sNo', L('Найти игрока по ID', 'ID bo‘yicha o‘yinchini topish'))}
+      <div class="grid2">${isAdmin ? `<select class="input" id="sRegion" aria-label="${L('Область', 'Viloyat')}"><option value="all">${L('Все области', 'Barcha viloyatlar')}</option>${REGIONS.map((r) => `<option value="${r.code}" ${sState.region === r.code ? 'selected' : ''}>${esc(regionShort(r.code))}</option>`).join('')}</select>` : `<div class="input" style="display:flex;align-items:center;background:var(--soft)">${esc(regionShort(sState.region))}</div>`}
+        <select class="input" id="sDistrict" aria-label="${L('Город или район', 'Shahar yoki tuman')}" ${region(sState.region) ? '' : 'disabled'}><option value="all">${L('Все районы', 'Barcha tumanlar')}</option>${(region(sState.region)?.districts || []).map((d) => `<option value="${esc(d.ru)}" ${sState.district === d.ru ? 'selected' : ''}>${esc(L(d.ru, d.uz))}</option>`).join('')}</select></div>
       <div class="muted">${L('Ближе всего к вашему уровню', 'Darajangizga eng yaqin')} · <span data-count>${list.length}</span></div>
-      ${list.map((u) => `<article class="card" data-name="${esc(fullName(u).toLowerCase())}"><a href="#/profile/${u.id}" class="row" style="text-decoration:none;color:inherit">${avatar(u)}<div class="grow"><div class="strong">${esc(fullName(u))}</div><div class="muted">${yearsText(u.years)} · ${esc(districtName(u.district))}${u.availability.length ? ' · ' + esc(u.availability.join(', ')) : ''}</div></div>
+      ${list.map((u) => `<article class="card" data-name="${esc(fullName(u).toLowerCase())}"><a href="#/profile/${u.id}" class="row" style="text-decoration:none;color:inherit">${avatar(u)}<div class="grow"><div class="strong">${esc(fullName(u))}</div><div class="muted">${yearsText(u.years)} · ${esc(placeText(u))}${u.availability.length ? ' · ' + esc(u.availability.join(', ')) : ''}</div></div>
         <div style="text-align:right"><div class="num" style="font-size:22px;line-height:1">${formatStrength(u.rating)}</div><div class="muted small strong">${leagueName(u.league).toUpperCase()}</div></div></a>
         <div class="row between mt">${formBadges(u.form)}${me.role === 'admin' ? '' : `<button class="btn ball sm" data-challenge="${u.id}">${L('Вызвать', 'Chaqirish')}</button>`}</div></article>`).join('') }
       <div class="empty" data-none ${list.length ? 'hidden' : ''}>${L('Никого не нашли — попробуйте снять фильтры', 'Hech kim topilmadi — filtrlarni olib tashlang')}</div>
@@ -859,6 +1000,9 @@ export const search = {
   mount(root, _, store) {
     root.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => { sState.tab = b.dataset.tab; rerender(); }));
     root.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => { sState[b.dataset.f] = b.dataset.v; rerender(); }));
+    bindIdSearch(root, store);
+    root.querySelector('#sRegion')?.addEventListener('change', (e) => { sState.region = e.target.value; sState.district = 'all'; rerender(); });
+    root.querySelector('#sDistrict')?.addEventListener('change', (e) => { sState.district = e.target.value; rerender(); });
     root.querySelectorAll('[data-challenge]').forEach((b) => b.addEventListener('click', () => challengeSheet(store, b.dataset.challenge)));
     // Name search filters the cards in place: no reload, the keyboard stays open
     const q = root.querySelector('#q');
@@ -920,16 +1064,19 @@ export const coach = {
 // =====================================================================
 // Tournaments
 // =====================================================================
+const isSeasonT = (t) => t.kind === 'season';
+const tSize = (t) => (isSeasonT(t) ? 4 : 8);
 const tStatus = (s) => ({ registration: [L('Регистрация', 'Ro‘yxatdan o‘tish'), 'warn'], running: [L('Идёт', 'Davom etmoqda'), 'ball'], finished: [L('Завершён', 'Yakunlangan'), 'ok'] }[s]);
 export const tournaments = {
   async render(_, store) {
-    const ts = await store.tournaments(); const me = store.me();
+    const me = store.me();
+    const ts = (await store.tournaments()).filter((t) => me.role === 'admin' || (t.region || 'namangan') === regionOf(me));
     return `<div class="pagehead">${back('#/home', true)}<h1 class="title">${L('Турниры', 'Turnirlar')}</h1></div>
-    <div class="wrap"><div class="muted">${L('8 игроков одной лиги, 3 матча у каждого, около 10 дней. Время матчей назначаете сами.', 'Bir ligadan 8 o‘yinchi, har biriga 3 o‘yin, taxminan 10 kun. Vaqtni o‘zingiz belgilaysiz.')}</div>
+    <div class="wrap"><div class="muted">${L('Кубки: 8 игроков одной лиги, 3 матча у каждого, около 10 дней. Турнир сезона: в конце каждого сезона 4 лучших игрока лиги по очкам играют полуфиналы и финал за титул «Чемпион сезона». Время матчей назначаете сами.', 'Kuboklar: bir ligadan 8 o‘yinchi, har biriga 3 o‘yin, taxminan 10 kun. Mavsum turniri: har mavsum oxirida liganing ochkolar bo‘yicha eng yaxshi 4 o‘yinchisi «Mavsum chempioni» unvoni uchun yarim final va finalda o‘ynaydi. Vaqtni o‘zingiz belgilaysiz.')}</div>
       ${ts.map((t) => { const [s, c] = tStatus(t.status); const mine = t.entries.find((e) => e.userId === me.id);
-        return `<a href="#/tournament/${t.id}" class="card" style="text-decoration:none;color:inherit"><div class="row between"><span class="tag ${c}">${s}</span><span class="muted strong">${L('Лига', 'Liga')} ${leagueName(t.league)}</span></div>
+        return `<a href="#/tournament/${t.id}" class="card ${isSeasonT(t) ? 'dark' : ''}" style="text-decoration:none;color:inherit"><div class="row between"><span class="row" style="gap:6px"><span class="tag ${c}">${s}</span>${isSeasonT(t) ? `<span class="tag ball">${L('Турнир сезона', 'Mavsum turniri')}</span>` : ''}</span><span class="${isSeasonT(t) ? 'sub' : 'muted'} strong">${L('Лига', 'Liga')} ${leagueName(t.league)}</span></div>
         <div class="num mt" style="font-size:22px;text-transform:uppercase">${esc(t.name)}</div>
-        <div class="muted">${fmtDate(t.startsAt)} – ${fmtDate(t.endsAt)} · ${t.entries.filter((e) => e.status === 'approved').length}/8${t.sponsor ? ' · ' + esc(t.sponsor) : ''}</div>
+        <div class="${isSeasonT(t) ? 'sub' : 'muted'}">${fmtDate(t.startsAt)} – ${fmtDate(t.endsAt)} · ${isSeasonT(t) ? L('топ-4 лиги', 'liga top-4') : `${t.entries.filter((e) => e.status === 'approved').length}/8`}${t.sponsor ? ' · ' + esc(t.sponsor) : ''}</div>
         ${mine ? `<div class="tag ok mt">${mine.status === 'approved' ? L('Вы участвуете', 'Siz ishtirokchisiz') : mine.status === 'pending' ? L('Заявка на рассмотрении', 'Ariza ko‘rib chiqilmoqda') : L('Заявка отклонена', 'Ariza rad etildi')}</div>` : ''}</a>`; }).join('') || `<div class="empty">${L('Турниров пока нет', 'Hali turnir yo‘q')}</div>`}
     </div>`;
   },
@@ -954,7 +1101,7 @@ export const tournament = {
     const canApply = t.status === 'registration' && !entry && me.role !== 'admin' && me.league === t.league && !(fp !== null && fp < FAIRPLAY_MIN_FOR_TOURNAMENT);
     return `<div class="hero">
       <div class="topbar">${back('#/tournaments')}<span class="tag ${c}">${s}</span></div>
-      <div class="sub small strong mt" style="letter-spacing:.05em">${L('ЛИГА', 'LIGA')} ${leagueName(t.league).toUpperCase()} · 8 ${L('ИГРОКОВ', 'O‘YINCHI')}</div>
+      <div class="sub small strong mt" style="letter-spacing:.05em">${isSeasonT(t) ? `${L('ТУРНИР СЕЗОНА', 'MAVSUM TURNIRI')} · ` : ''}${L('ЛИГА', 'LIGA')} ${leagueName(t.league).toUpperCase()} · ${tSize(t)} ${L('ИГРОКОВ', 'O‘YINCHI')}</div>
       <h1 class="title" style="font-size:30px;margin-top:4px">${esc(t.name)}</h1>
       <div class="row mt" style="gap:16px"><span><span class="sub">${L('Сроки', 'Muddat')}</span> <b>${fmtDate(t.startsAt)} – ${fmtDate(t.endsAt)}</b></span>${t.sponsor ? `<span><span class="sub">${L('Спонсор', 'Homiy')}</span> <b>${esc(t.sponsor)}</b></span>` : ''}</div>
     </div>
@@ -963,12 +1110,14 @@ export const tournament = {
       ${t.status === 'registration' && !entry && me.league !== t.league && me.role !== 'admin' ? `<div class="muted">${L('Этот турнир для лиги', 'Bu turnir ligasi')} ${leagueName(t.league)}.</div>` : ''}
       ${entry ? `<div class="card"><span class="tag ok">${entry.status === 'approved' ? L('Вы участвуете', 'Siz ishtirokchisiz') : entry.status === 'pending' ? L('Заявка на рассмотрении у администратора', 'Ariza administratorda') : L('Заявка отклонена', 'Ariza rad etildi')}</span></div>` : ''}
       ${b ? `<div class="card"><h2 class="h">${L('Сетка', 'To‘r')}</h2>
-        <div class="muted small strong">${L('ЧЕТВЕРТЬФИНАЛ', 'CHORAK FINAL')}</div><div class="grid2 mt">${b.qf.map((x, i) => slot(x, `qf.${i}`, L('не сыгран', 'o‘ynalmagan'))).join('')}</div>
-        <div class="muted small strong mt">${L('ПОЛУФИНАЛ', 'YARIM FINAL')}</div><div class="grid2 mt">${b.sf.map((x, i) => slot(x, `sf.${i}`, L('ждёт соперников', 'raqiblar kutilmoqda'))).join('')}</div>
+        ${b.qf ? `<div class="muted small strong">${L('ЧЕТВЕРТЬФИНАЛ', 'CHORAK FINAL')}</div><div class="grid2 mt">${b.qf.map((x, i) => slot(x, `qf.${i}`, L('не сыгран', 'o‘ynalmagan'))).join('')}</div>` : ''}
+        <div class="muted small strong ${b.qf ? 'mt' : ''}">${L('ПОЛУФИНАЛ', 'YARIM FINAL')}</div><div class="grid2 mt">${b.sf.map((x, i) => slot(x, `sf.${i}`, b.qf ? L('ждёт соперников', 'raqiblar kutilmoqda') : L('не сыгран', 'o‘ynalmagan'))).join('')}</div>
         <div class="muted small strong mt">${L('ФИНАЛ', 'FINAL')}</div><div class="mt">${slot(b.final, 'final', L('ждёт финалистов', 'finalchilar kutilmoqda'))}</div>
-        <div class="muted small strong mt">${L('ЗА 5–8 МЕСТА', '5–8 O‘RINLAR UCHUN')}</div><div class="grid2 mt">${b.cons.map((x, i) => slot(x, `cons.${i}`, L('ждёт игроков', 'o‘yinchilar kutilmoqda'))).join('')}</div>
+        ${b.cons ? `<div class="muted small strong mt">${L('ЗА 5–8 МЕСТА', '5–8 O‘RINLAR UCHUN')}</div><div class="grid2 mt">${b.cons.map((x, i) => slot(x, `cons.${i}`, L('ждёт игроков', 'o‘yinchilar kutilmoqda'))).join('')}</div>` : ''}
       </div>` : `<div class="card"><h2 class="h">${L('Участники', 'Ishtirokchilar')}</h2>${t.entries.filter((e) => e.status !== 'rejected').map((e) => `<div class="kv"><span class="row" style="gap:8px">${avatar(store.user(e.userId), 'sm')}${esc(fullName(store.user(e.userId)))}</span><span class="tag ${e.status === 'approved' ? 'ok' : 'warn'}">${e.status === 'approved' ? L('утверждён', 'tasdiqlangan') : L('заявка', 'ariza')}</span></div>`).join('') || `<div class="empty">${L('Пока нет заявок', 'Hali ariza yo‘q')}</div>`}</div>`}
-      <div class="muted small">${L('Турнирные матчи дают двойные очки. Победитель +100, финалист +60 очков и достижения в профиль.', 'Turnir o‘yinlari ikki baravar ochko beradi. G‘olib +100, finalchi +60 ochko va yutuqlar.')}</div>
+      <div class="muted small">${isSeasonT(t)
+        ? L('Полуфиналы: 1-е место против 4-го, 2-е против 3-го. Победитель финала получает титул «Чемпион сезона», соперник — «Финалист сезона». Матчи турнира сезона меняют уровень силы, но не дают очков нового сезона.', 'Yarim finallar: 1-o‘rin 4-o‘ringa, 2-o‘rin 3-o‘ringa qarshi. Final g‘olibi «Mavsum chempioni», raqibi «Mavsum finalchisi» unvonini oladi. Mavsum turniri o‘yinlari kuch darajasini o‘zgartiradi, lekin yangi mavsum ochkolarini bermaydi.')
+        : L('Турнирные матчи дают двойные очки. Победитель — золотой кубок и +100 очков, финалист — серебряный и +60, полуфиналисты — бронзовый и +30.', 'Turnir o‘yinlari ikki baravar ochko beradi. G‘olib — oltin kubok va +100 ochko, finalchi — kumush va +60, yarim finalchilar — bronza va +30.')}</div>
     </div>`;
   },
   mount(root, params, store) {
@@ -992,20 +1141,43 @@ export const tournament = {
 // =====================================================================
 // News
 // =====================================================================
-const nState = { section: 'all' };
+const nState = { scope: 'local', section: 'all' };
+const ago = (iso) => {
+  const m = Math.max(1, Math.round((Date.now() - new Date(iso)) / 6e4));
+  if (m < 60) return `${m} ${L('мин назад', 'daqiqa oldin')}`;
+  const h = Math.round(m / 60); if (h < 24) return `${h} ${L('ч назад', 'soat oldin')}`;
+  return fmtDate(iso);
+};
+const nTitle = (n) => L(n.title, n.titleUz || n.title);
 export const news = {
   async render(_, store) {
-    const ns = (await store.news()).filter((n) => nState.section === 'all' || n.section === nState.section);
+    const seg = `<div class="seg"><button class="${nState.scope === 'local' ? 'on' : ''}" data-scope="local">${L('Местные', 'Mahalliy')}</button><button class="${nState.scope === 'world' ? 'on' : ''}" data-scope="world">${L('Мировые', 'Jahon')}</button></div>`;
+    const head = `<div class="pagehead">${back('#/home', true)}<h1 class="title">${L('Новости', 'Yangiliklar')}</h1></div>`;
+    if (nState.scope === 'world') {
+      const ws = store.worldNews ? await store.worldNews().catch(() => []) : [];
+      return `${head}<div class="wrap">${seg}
+        ${ws.map((n, i) => `<a href="${esc(n.url)}" target="_blank" rel="noopener noreferrer" class="card" style="padding:0;overflow:hidden;text-decoration:none;color:inherit;display:block">
+          ${n.image && i < 30 ? `<div class="photo-ph" style="height:${i === 0 ? 200 : 150}px"><img src="${esc(n.image)}" alt="" loading="${i < 2 ? 'eager' : 'lazy'}" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></div>` : ''}
+          <div style="padding:14px 16px"><div class="num" style="font-size:${i === 0 ? 21 : 17}px;line-height:1.2">${esc(n.title)}</div>
+          ${n.summary ? `<div class="mt" style="line-height:1.45">${esc(n.summary)}</div>` : ''}
+          <div class="muted small mt">${esc(n.source)} · ${ago(n.publishedAt)} · ${L('читать на сайте', 'saytda o‘qish')} ↗</div></div></a>`).join('') || `<div class="empty">${L('Мировые новости появятся в течение часа', 'Jahon yangiliklari bir soat ichida paydo bo‘ladi')}</div>`}
+        <div class="muted small center">${L('Новости тенниса со всего мира: Championat.com. Хранятся 7 дней.', 'Butun dunyo tennis yangiliklari: Championat.com. 7 kun saqlanadi.')}</div></div>`;
+    }
+    const me = store.me();
+    const ns = (await store.news()).filter((n) => (nState.section === 'all' || n.section === nState.section) && (me.role === 'admin' || !n.region || n.region === regionOf(me)));
     const sec = (s) => ({ tournaments: L('Турниры', 'Turnirlar'), season: L('Итоги сезона', 'Mavsum yakunlari'), community: L('Сообщество', 'Jamoa') }[s]);
-    return `<div class="pagehead">${back('#/home', true)}<h1 class="title">${L('Новости', 'Yangiliklar')}</h1></div>
-    <div class="wrap"><div class="chips scroll">${['all', 'tournaments', 'season', 'community'].map((s) => `<button class="chip ${nState.section === s ? 'on' : ''}" data-s="${s}">${s === 'all' ? L('Все', 'Barchasi') : sec(s)}</button>`).join('')}</div>
+    return `${head}
+    <div class="wrap">${seg}<div class="chips scroll">${['all', 'tournaments', 'season', 'community'].map((s) => `<button class="chip ${nState.section === s ? 'on' : ''}" data-s="${s}">${s === 'all' ? L('Все', 'Barchasi') : sec(s)}</button>`).join('')}</div>
       ${ns.map((n, i) => `<a href="#/news/${n.id}" class="card" style="padding:0;overflow:hidden;text-decoration:none;color:inherit">
-        ${i === 0 ? `<div class="photo-ph">${n.photos[0] ? `<img src="${esc(n.photos[0])}" alt="">` : `${logo(56)}`}</div>` : ''}
-        <div style="padding:14px 16px"><span class="tag soft">${sec(n.section)}</span><div class="num mt" style="font-size:${i === 0 ? 22 : 17}px;line-height:1.2">${esc(n.title)}</div>
+        ${i === 0 ? `<div class="photo-ph">${n.photos[0] ? `<img src="${esc(n.photos[0])}" alt="">` : n.auto ? `<span style="color:var(--ball)">${cupIcon(64, 1.6)}</span>` : `${logo(56)}`}</div>` : ''}
+        <div style="padding:14px 16px"><span class="tag soft">${sec(n.section)}</span><div class="num mt" style="font-size:${i === 0 ? 22 : 17}px;line-height:1.2">${esc(nTitle(n))}</div>
         <div class="muted mt">${fmtDate(n.createdAt)} · ${n.comments.length} ${L('комм.', 'izoh')}</div></div></a>`).join('') || `<div class="empty">${L('Новостей пока нет', 'Hali yangilik yo‘q')}</div>`}
     </div>`;
   },
-  mount(root) { root.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => { nState.section = b.dataset.s; rerender(); })); },
+  mount(root) {
+    root.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => { nState.section = b.dataset.s; rerender(); }));
+    root.querySelectorAll('[data-scope]').forEach((b) => b.addEventListener('click', () => { nState.scope = b.dataset.scope; rerender(); }));
+  },
 };
 
 export const newsItem = {
@@ -1015,8 +1187,8 @@ export const newsItem = {
     return `<div class="pagehead">${back('#/news', true)}<h1 class="title" style="font-size:20px">${L('Новости', 'Yangiliklar')}</h1></div>
     <div class="wrap"><article class="card" style="padding:0;overflow:hidden">
       ${n.photos.length ? n.photos.map((p) => `<div class="photo-ph"><img src="${esc(p)}" alt=""></div>`).join('') : ''}
-      <div style="padding:16px"><div class="muted">${fmtDate(n.createdAt)}</div><h2 class="num" style="font-size:24px;margin:6px 0 10px;line-height:1.15">${esc(n.title)}</h2>
-      <div style="line-height:1.55;white-space:pre-line">${esc(n.body)}</div></div></article>
+      <div style="padding:16px"><div class="muted">${fmtDate(n.createdAt)}</div><h2 class="num" style="font-size:24px;margin:6px 0 10px;line-height:1.15">${esc(nTitle(n))}</h2>
+      <div style="line-height:1.55;white-space:pre-line">${esc(L(n.body, n.bodyUz || n.body))}</div></div></article>
       <div class="card"><h2 class="h">${L('Комментарии', 'Izohlar')}</h2>
         ${n.comments.map((c) => `<div class="row" style="align-items:flex-start;padding:8px 0">${avatar(store.user(c.userId), 'sm')}<div class="grow"><div class="strong small">${esc(shortName(store.user(c.userId)))} <span class="muted">· ${fmtDate(c.createdAt)}</span></div><div>${esc(c.text)}</div></div>${me.role === 'admin' || c.userId === me.id ? `<button class="chip" data-del="${c.id}" aria-label="${L('Удалить', 'O‘chirish')}">×</button>` : ''}</div>`).join('') || `<div class="muted">${L('Будьте первым', 'Birinchi bo‘ling')}</div>`}
         <form id="cf" class="row mt"><input class="input grow" id="ct" placeholder="${L('Ваш комментарий', 'Izohingiz')}" maxlength="1000"><button class="btn sm">${L('Отпр.', 'Yub.')}</button></form></div>
@@ -1067,27 +1239,33 @@ export const admin = {
       const ts = await store.tournaments();
       body = `<form class="card" id="tnew"><h2 class="h">${L('Новый турнир', 'Yangi turnir')}</h2>
         <label class="f" for="tn">${L('Название', 'Nomi')}</label><input class="input" id="tn" required>
+        <label class="f" for="trg">${L('Область', 'Viloyat')}</label><select class="input" id="trg">${REGIONS.map((r) => `<option value="${r.code}">${esc(L(r.ru, r.uz))}</option>`).join('')}</select>
         <div class="grid2"><div><label class="f" for="tl">${L('Лига', 'Liga')}</label><select class="input" id="tl">${LEAGUES.map((l) => `<option value="${l.id}">${L(l.ru, l.uz)}</option>`).join('')}</select></div><div><label class="f" for="ts">${L('Спонсор', 'Homiy')}</label><input class="input" id="ts"></div></div>
         <div class="grid2"><div><label class="f" for="t1">${L('Начало', 'Boshlanish')}</label><input class="input" type="date" id="t1" required></div><div><label class="f" for="t2">${L('Конец', 'Tugash')}</label><input class="input" type="date" id="t2" required></div></div>
         <button class="btn ball block mt">${L('Создать', 'Yaratish')}</button></form>
-        ${ts.map((t) => `<div class="card"><div class="row between"><span class="strong">${esc(t.name)}</span><span class="tag ${tStatus(t.status)[1]}">${tStatus(t.status)[0]}</span></div><div class="muted">${leagueName(t.league)} · ${t.entries.filter((e) => e.status === 'approved').length}/8</div>
+        ${ts.map((t) => `<div class="card"><div class="row between"><span class="strong">${esc(t.name)}</span><span class="tag ${tStatus(t.status)[1]}">${tStatus(t.status)[0]}</span></div><div class="muted">${leagueName(t.league)} · ${isSeasonT(t) ? L('турнир сезона, топ-4', 'mavsum turniri, top-4') : `${t.entries.filter((e) => e.status === 'approved').length}/8`}</div>
           ${t.status === 'registration' ? `${t.entries.map((e) => `<div class="kv"><span>${esc(fullName(store.user(e.userId)))}</span>${e.status === 'pending' ? `<span class="row" style="gap:6px"><button class="btn sm" data-ent="${t.id}:${e.userId}:1">✓</button><button class="btn ghost sm" data-ent="${t.id}:${e.userId}:0">✕</button></span>` : `<span class="tag ${e.status === 'approved' ? 'ok' : 'bad'}">${e.status === 'approved' ? L('утв.', 'tasd.') : L('откл.', 'rad')}</span>`}</div>`).join('')}
           <button class="btn block mt" data-start="${t.id}">${L('Запустить турнир (сетка)', 'Turnirni boshlash')}</button>` : `<a class="btn ghost block mt" href="#/tournament/${t.id}">${L('Открыть сетку', 'To‘rni ochish')}</a>`}</div>`).join('')}`;
     }
     if (tab === 'news') {
+      const ns = await store.news();
       body = `<form class="card" id="nnew"><h2 class="h">${L('Опубликовать новость', 'Yangilik e’lon qilish')}</h2>
         <label class="f" for="nt">${L('Заголовок', 'Sarlavha')}</label><input class="input" id="nt" required>
+        <label class="f" for="nrg">${L('Для кого', 'Kim uchun')}</label><select class="input" id="nrg"><option value="">${L('Для всех областей', 'Barcha viloyatlar uchun')}</option>${REGIONS.map((r) => `<option value="${r.code}">${esc(L(r.ru, r.uz))}</option>`).join('')}</select>
         <label class="f" for="ns">${L('Раздел', 'Bo‘lim')}</label><select class="input" id="ns"><option value="tournaments">${L('Турниры', 'Turnirlar')}</option><option value="season">${L('Итоги сезона', 'Mavsum yakunlari')}</option><option value="community">${L('Сообщество', 'Jamoa')}</option></select>
         <label class="f" for="nb">${L('Текст', 'Matn')}</label><textarea class="input" id="nb" rows="6" required></textarea>
         <label class="f" for="np">${L('Фото (до 20)', 'Rasmlar (20 tagacha)')}</label><input type="file" id="np" accept="image/*" multiple>
-        <button class="btn ball block mt">${L('Опубликовать', 'E’lon qilish')}</button></form>`;
+        <button class="btn ball block mt">${L('Опубликовать', 'E’lon qilish')}</button></form>
+        <div class="card"><h2 class="h">${L('Местные новости', 'Mahalliy yangiliklar')}</h2>
+          <div class="muted small">${L('Итоги турниров и сезонов публикуются сами. Мировые новости обновляются каждые 30 минут и хранятся 7 дней, автоматические местные — 1 год, ваши — пока не удалите.', 'Turnir va mavsum natijalari o‘zi e’lon qilinadi. Jahon yangiliklari har 30 daqiqada yangilanadi va 7 kun saqlanadi, avtomatik mahalliylar — 1 yil, siznikilar — o‘chirmaguningizcha.')}</div>
+          <div class="list mt">${ns.map((n) => `<div class="row between" style="gap:10px"><div class="grow" style="min-width:0"><a href="#/news/${n.id}" class="strong ellipsis" style="display:block;color:inherit;text-decoration:none">${esc(n.title)}</a><div class="muted small">${fmtDate(n.createdAt)}${n.auto ? ' · ' + L('авто', 'avto') : ''}</div></div><button class="btn ghost sm" data-delnews="${n.id}">${L('Удалить', 'O‘chirish')}</button></div>`).join('') || `<div class="muted">${L('Новостей пока нет', 'Hali yangilik yo‘q')}</div>`}</div></div>`;
     }
     if (tab === 'users' || tab === 'coachlist') {
       const coachesOnly = tab === 'coachlist';
       const [players, coachesAll, contacts] = await Promise.all([store.listUsers({ role: 'player' }), store.listUsers({ role: 'coach' }), store.adminContacts ? store.adminContacts().catch(() => ({})) : {}]);
       const us = (coachesOnly ? coachesAll : players).sort((a, b) => fullName(a).localeCompare(fullName(b)));
       const contact = (u) => { const c = contacts[u.id] || {}; const ph = String(c.phone || u.phone || '').replace(/\D/g, '');
-        return `<div class="muted small" style="margin:2px 0 0 40px">${ph ? `<a href="tel:+${esc(ph)}">${esc(fmtPhone(ph))}</a>` : ''}${ph && c.email ? ' · ' : ''}${c.email ? esc(c.email) : ''}</div>`; };
+        return `<div class="muted small" style="margin:2px 0 0 40px">${[u.playerNo ? 'ID ' + u.playerNo : '', regionShort(regionOf(u))].filter(Boolean).map(esc).join(' · ')}${ph || c.email ? ' · ' : ''}${ph ? `<a href="tel:+${esc(ph)}">${esc(fmtPhone(ph))}</a>` : ''}${ph && c.email ? ' · ' : ''}${c.email ? esc(c.email) : ''}</div>`; };
       const list = `<div class="seg"><a class="${coachesOnly ? '' : 'on'}" href="#/admin/users" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:inherit;font-weight:800;border-radius:11px;height:42px;${coachesOnly ? '' : 'background:var(--card)'}">${L('Игроки', 'O‘yinchilar')} · ${players.length}</a><a class="${coachesOnly ? 'on' : ''}" href="#/admin/coachlist" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:inherit;font-weight:800;border-radius:11px;height:42px;${coachesOnly ? 'background:var(--card)' : ''}">${L('Тренеры', 'Murabbiylar')} · ${coachesAll.length}</a></div>
         <div class="card">${us.map((u) => `<div style="padding:8px 0;border-top:1px solid #E8EDE3"><div class="kv" style="min-height:40px"><a href="#/${u.role === 'coach' ? 'coach' : 'profile'}/${u.id}" class="row" style="gap:8px;min-width:0;text-decoration:none;color:inherit">${avatar(u, 'sm')}<span class="ellipsis">${esc(fullName(u))}${banned(u) ? ` <span class="tag bad">${L('бан до', 'blok')} ${fmtDate(u.bannedUntil)}</span>` : ''}</span></a>${banned(u) ? `<button class="btn ghost sm" data-ban="${u.id}:0">${L('Снять', 'Olib tashlash')}</button>` : `<button class="btn danger sm" data-ban="${u.id}:7">${L('Бан 7 дн.', 'Blok 7 kun')}</button>`}</div>${contact(u)}</div>`).join('') || `<div class="muted">${L('Пока никого нет', 'Hozircha hech kim yo‘q')}</div>`}</div>`;
       body = `<form class="card" id="inv"><h2 class="h">${L('Пригласить тренера', 'Murabbiyni taklif qilish')}</h2><div class="muted">${L('После личной встречи. Тренер войдёт по этому номеру и сразу получит роль тренера.', 'Shaxsiy uchrashuvdan so‘ng. Murabbiy shu raqam bilan kiradi.')}</div>
@@ -1110,9 +1288,13 @@ export const admin = {
     root.querySelectorAll('[data-ban]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [u, d] = b.dataset.ban.split(':'); await store.setBan(u, +d); rerender(); })));
     root.querySelector('#tnew')?.addEventListener('submit', (e) => { e.preventDefault(); act(e.submitter, async () => {
       const v = (id) => root.querySelector('#' + id).value;
-      await store.createTournament({ name: v('tn'), league: v('tl'), sponsor: v('ts'), startsAt: new Date(v('t1')).toISOString(), endsAt: new Date(v('t2')).toISOString() });
+      await store.createTournament({ name: v('tn'), league: v('tl'), region: v('trg'), sponsor: v('ts'), startsAt: new Date(v('t1')).toISOString(), endsAt: new Date(v('t2')).toISOString() });
       toast(L('Турнир создан, заявки открыты', 'Turnir yaratildi')); rerender();
     }); });
+    root.querySelectorAll('[data-delnews]').forEach((b) => b.addEventListener('click', () => {
+      if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = L('Точно удалить?', 'Rostdan o‘chirish?'); b.classList.add('danger'); return; }
+      act(b, async () => { await store.deleteNews(b.dataset.delnews); toast(L('Новость удалена', 'Yangilik o‘chirildi')); rerender(); });
+    }));
     root.querySelector('#nnew')?.addEventListener('submit', (e) => { e.preventDefault(); act(e.submitter, async () => {
       const files = [...root.querySelector('#np').files].slice(0, 20);
       const photos = [];
@@ -1121,7 +1303,7 @@ export const admin = {
         if (store.uploadPhoto) { const blob = await (await fetch(data)).blob(); photos.push(await store.uploadPhoto(new File([blob], 'n.jpg', { type: 'image/jpeg' }))); }
         else photos.push(data);
       }
-      await store.addNews({ title: root.querySelector('#nt').value, section: root.querySelector('#ns').value, body: root.querySelector('#nb').value, photos });
+      await store.addNews({ title: root.querySelector('#nt').value, region: root.querySelector('#nrg').value, section: root.querySelector('#ns').value, body: root.querySelector('#nb').value, photos });
       toast(L('Опубликовано', 'E’lon qilindi')); go('#/news');
     }); });
     root.querySelector('#inv')?.addEventListener('submit', (e) => { e.preventDefault(); act(e.submitter, async () => {

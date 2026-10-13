@@ -30,7 +30,7 @@ function seed() {
   const skill = {};
   names.forEach(([f, l, g, by, yrs, s], i) => {
     const u = newPlayer({
-      firstName: f, lastName: l, gender: g, birthYear: by, years: toMonths(yrs), district: DISTRICTS[i % 5],
+      firstName: f, lastName: l, gender: g, birthYear: by, years: toMonths(yrs), region: 'namangan', district: DISTRICTS[i % 5],
       selfLevel: yrs >= 5 ? 'продвинутый' : yrs >= 3 ? 'средний' : 'начинающий', hand: i % 6 === 2 ? 'левша' : 'правша',
       availability: [TIMES[i % 4], TIMES[(i + 2) % 4]], phone: `+99890${String(1000000 + i).slice(1)}`,
       createdAt: addHours(nowIso(), -24 * 120),
@@ -45,7 +45,7 @@ function seed() {
   ];
   for (const [f, l, g, exp, spec, ww] of coaches) {
     db.users.push(newPlayer({
-      role: 'coach', firstName: f, lastName: l, gender: g, years: 48, district: 'г. Наманган', phone: '', availability: ['утро', 'вечер'],
+      role: 'coach', firstName: f, lastName: l, gender: g, years: 48, region: 'namangan', district: 'г. Наманган', phone: '', availability: ['утро', 'вечер'],
       coach: { verified: true, price: null, specialization: spec.split(';'), worksWith: ww, experience: 48 },
       createdAt: addHours(nowIso(), -24 * 150),
     }));
@@ -145,6 +145,8 @@ export class DemoStore {
     if (!raw) this.save();
     expirePending(this.db);
     this.db.users.forEach(rollSeason);
+    // Player numbers (ID) and region for old demo data
+    this.db.users.forEach((u, i) => { if (!u.playerNo) u.playerNo = 10001 + i; if (!u.region && u.district) u.region = 'namangan'; });
     this.save();
   }
   save() { safeSet(JSON.stringify(this.db)); }
@@ -398,6 +400,8 @@ export class DemoStore {
   // ---------- news ----------
   async news() { return clone(this.db.news.sort((a, b) => b.createdAt.localeCompare(a.createdAt))); }
   async newsItem(id) { return clone(this.db.news.find((n) => n.id === id)); }
+  async worldNews() { return []; } // world news come from the server only
+  async deleteNews(id) { this.db.news = this.db.news.filter((n) => n.id !== id); this.save(); }
   async addNews(data) { this.db.news.push({ id: uid(), createdAt: nowIso(), comments: [], photos: [], ...data }); this.save(); }
   async addComment(newsId, text) {
     const n = this.db.news.find((x) => x.id === newsId);
