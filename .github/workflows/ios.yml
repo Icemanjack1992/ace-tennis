@@ -1,0 +1,43 @@
+# iOS build of the Ace Tennis shell on a GitHub Mac. Check build without signing;
+# the signed upload to App Store Connect is added when the Apple account is ready.
+name: iOS build
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['native/**', '.github/workflows/ios.yml']
+jobs:
+  build:
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: native
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Capacitor
+        run: |
+          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/ios@latest @capacitor/splash-screen@latest @capacitor/geolocation@latest
+          npm install -D @capacitor/assets@latest
+      - name: Create iOS project
+        run: npx cap add ios
+      - name: Icons and splash
+        run: npx capacitor-assets generate --ios --iconBackgroundColor '#0E3B2C' --splashBackgroundColor '#0E3B2C' --splashBackgroundColorDark '#0E3B2C'
+      - name: Permissions texts
+        run: node scripts/ios-plist.mjs
+      - name: Sync
+        run: npx cap sync ios
+      - name: Build for simulator (no signing)
+        run: |
+          set -o pipefail
+          cd ios/App
+          if [ -d App.xcworkspace ]; then T="-workspace App.xcworkspace"; else T="-project App.xcodeproj"; fi
+          xcodebuild $T -scheme App -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build | tail -60
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-project
+          path: native/ios
+          retention-days: 7
