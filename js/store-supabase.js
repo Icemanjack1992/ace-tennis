@@ -310,6 +310,17 @@ export class SupabaseStore {
     const rows = check(await this.sb.rpc('admin_contacts')) || [];
     return Object.fromEntries(rows.map((r) => [r.id, { phone: r.phone, email: r.email }]));
   }
+  // The user deletes his own account: photos, personal data and login (the administrator cannot)
+  async deleteAccount() {
+    const uid = this.uid();
+    try {
+      const files = check(await this.sb.storage.from('photos').list(uid, { limit: 1000 })) || [];
+      if (files.length) await this.sb.storage.from('photos').remove(files.map((f) => `${uid}/${f.name}`));
+    } catch { /* photos are optional */ }
+    check(await this.sb.rpc('delete_my_account'));
+    snapClear(); try { await this.sb.auth.signOut({ scope: 'local' }); } catch { /* session is already closed */ }
+    this.meCache = null; this.setUsers([]); this.syncAt = null; this.fullAt = 0; this.invalidate();
+  }
   async signOut() { snapClear(); await this.sb.auth.signOut(); this.meCache = null; this.setUsers([]); this.syncAt = null; this.fullAt = 0; this.invalidate(); }
 
   // ---------- Telegram bot login ----------

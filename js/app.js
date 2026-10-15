@@ -11,6 +11,7 @@ const app = document.getElementById('app');
 const routes = [
   [/^#\/login$/, V.login, { open: true }],
   [/^#\/terms$/, V.termsPage, { open: true }],
+  [/^#\/delete-account$/, V.deleteAccountPage, { open: true }],
   [/^#\/onboarding$/, V.onboarding, { open: true, gateFree: true }],
   [/^#\/confirm$/, V.confirmScreen, { gateFree: true }],
   [/^#\/home$/, V.home, { tab: 'home' }],
@@ -80,7 +81,7 @@ export async function render(keepScroll = false) {
   const [match, view, opts] = cur;
   const me = store.me();
   if (!opts.open && !me) { location.hash = '#/login'; return; }
-  if (me && !profileDone(me) && hash !== '#/onboarding' && hash !== '#/terms') { location.hash = '#/onboarding'; return; }
+  if (me && !profileDone(me) && hash !== '#/onboarding' && hash !== '#/terms' && hash !== '#/delete-account') { location.hash = '#/onboarding'; return; }
   if (opts.admin && me?.role !== 'admin') { location.hash = '#/home'; return; }
   if (me?.role === 'admin' && /^#\/(add|confirm|edit|profile$|home)/.test(hash)) { location.hash = '#/admin'; return; }
   if (me?.role === 'admin' && hash === '#/tournaments') { location.hash = '#/admin/tournaments'; return; }

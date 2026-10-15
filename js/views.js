@@ -72,6 +72,39 @@ export const termsPage = {
       <div class="wrap"><div class="card">${termsHtml()}</div></div>`;
   },
 };
+// Account deletion: in the profile and on a public page (ace-tennis.uz/#/delete-account — the link for the app stores)
+const DEL_WORD = () => L('УДАЛИТЬ', 'OʻCHIRISH');
+const deleteInfo = () => `<ul style="margin:8px 0 0;padding-left:18px;line-height:1.5">
+  <li>${L('Удаляются: имя, фото, телефон, почта и пароль для входа, анкета, вызовы, отзывы, оценки, достижения, переписка с администрацией, заявки на турниры.', 'O‘chiriladi: ism, rasm, telefon, kirish uchun pochta va parol, anketa, chaqiruvlar, sharhlar, baholar, yutuqlar, ma’muriyat bilan yozishmalar, turnir arizalari.')}</li>
+  <li>${L('Подтверждённые матчи остаются в истории соперников без вашего имени («Удалённый игрок») — от них зависит их рейтинг.', 'Tasdiqlangan o‘yinlar raqiblar tarixida ismingizsiz qoladi («O‘chirilgan o‘yinchi») — ularning reytingi shunga bog‘liq.')}</li>
+  <li>${L('Удаление сразу и навсегда, восстановить аккаунт нельзя. С той же почтой можно зарегистрироваться заново.', 'O‘chirish darhol va butunlay, tiklab bo‘lmaydi. Shu pochta bilan qaytadan ro‘yxatdan o‘tish mumkin.')}</li></ul>`;
+function deleteAccountSheet(store) {
+  sheet(`<h2 class="h">${L('Удалить аккаунт', 'Akkauntni o‘chirish')}</h2>
+    <div class="small">${deleteInfo()}</div>
+    <label class="f" for="delw">${L(`Чтобы подтвердить, введите слово ${DEL_WORD()}`, `Tasdiqlash uchun ${DEL_WORD()} so‘zini kiriting`)}</label>
+    <input id="delw" class="input" autocomplete="off" autocapitalize="characters">
+    <div class="grid2 mt"><button type="button" class="btn ghost" data-close>${L('Отмена', 'Bekor')}</button><button type="button" class="btn danger" id="delGo" disabled>${L('Удалить навсегда', 'Butunlay o‘chirish')}</button></div>`, (el, close) => {
+    const inp = el.querySelector('#delw'); const btn = el.querySelector('#delGo');
+    inp.addEventListener('input', () => { btn.disabled = inp.value.trim().toUpperCase() !== DEL_WORD(); });
+    btn.addEventListener('click', () => act(btn, async () => {
+      await store.deleteAccount(); close();
+      toast(L('Аккаунт удалён', 'Akkaunt o‘chirildi')); go('#/login');
+    }));
+  });
+}
+export const deleteAccountPage = {
+  render(_, store) {
+    const me = store.me();
+    return `<div class="pagehead">${back(me ? '#/profile' : '#/login', true)}<h1 class="title" style="font-size:22px">${L('Удаление аккаунта', 'Akkauntni o‘chirish')}</h1></div>
+      <div class="wrap"><div class="card"><div class="strong">Ace Tennis (ace-tennis.uz)</div>
+        <div class="mt">${L('Удалить аккаунт можно самостоятельно в приложении: Профиль → Настройки → «Удалить аккаунт».', 'Akkauntni ilovada o‘zingiz o‘chirishingiz mumkin: Profil → Sozlamalar → «Akkauntni o‘chirish».')}</div>
+        <div class="small mt">${deleteInfo()}</div>
+        ${me && me.role !== 'admin' ? `<button class="btn danger block mt" data-delacc>${L('Удалить мой аккаунт', 'Akkauntimni o‘chirish')}</button>`
+          : me ? '' : `<a class="btn ball block mt" href="#/login">${L('Войти, чтобы удалить аккаунт', 'O‘chirish uchun kirish')}</a>`}
+        <div class="muted small mt">${L('Нет доступа к аккаунту? Напишите на', 'Akkauntga kira olmayapsizmi? Yozing:')} ${esc((window.ACE_CONFIG || {}).contactEmail || '')}</div></div></div>`;
+  },
+  mount(root, _, store) { root.querySelector('[data-delacc]')?.addEventListener('click', () => deleteAccountSheet(store)); },
+};
 const termsCheck = (id, checked = false) => `<label class="row mt small" style="gap:10px;align-items:flex-start;cursor:pointer">
   <input type="checkbox" id="${id}" ${checked ? 'checked' : ''} required style="width:22px;height:22px;flex-shrink:0;margin:0;accent-color:var(--court)">
   <span>${L('Я прочитал(а) и принимаю', 'O‘qidim va qabul qilaman:')} <button type="button" class="linkbtn" data-terms style="all:unset;text-decoration:underline;font-weight:800;cursor:pointer">${L('Пользовательское соглашение', 'Foydalanuvchi kelishuvi')}</button>${L(', в том числе согласие на обработку персональных данных и условия для тренеров', ', shu jumladan shaxsiy ma’lumotlarni qayta ishlashga rozilik va murabbiylar uchun shartlar')}</span></label>`;
@@ -912,7 +945,8 @@ export const profile = {
         <button class="btn block mt" data-update>${L('Проверить обновление', 'Yangilanishni tekshirish')}</button>
         <a class="btn ghost block mt" href="#/support">${L('Написать администрации', 'Ma’muriyatga yozish')}${supUnread ? ` <span class="tag bad">${supUnread}</span>` : ''}</a>
         <button class="btn ghost block mt" data-terms>${termsTitle()}</button>
-        <button class="btn ghost block mt" data-logout>${L('Выйти', 'Chiqish')}</button></div>` : ''}
+        <button class="btn ghost block mt" data-logout>${L('Выйти', 'Chiqish')}</button>
+        ${me.role !== 'admin' && store.deleteAccount ? `<button class="btn ghost block mt" data-delacc style="color:var(--bad);border-color:transparent">${L('Удалить аккаунт', 'Akkauntni o‘chirish')}</button>` : ''}</div>` : ''}
     </div>`;
   },
   mount(root, params, store) {
@@ -929,6 +963,7 @@ export const profile = {
     }));
     root.querySelector('[data-challenge]')?.addEventListener('click', () => challengeSheet(store, id));
     root.querySelector('[data-sharecard]')?.addEventListener('click', () => shareSheet(store, id));
+    root.querySelector('[data-delacc]')?.addEventListener('click', () => deleteAccountSheet(store));
     root.querySelector('[data-pw]')?.addEventListener('click', () => sheet(`<h2 class="h">${L('Новый пароль', 'Yangi parol')}</h2>
       <form id="cpw"><input id="npw" class="input" type="password" autocomplete="new-password" minlength="6" required placeholder="${L('Минимум 6 символов', 'Kamida 6 belgi')}">
       <div class="grid2 mt"><button type="button" class="btn ghost" data-close>${L('Отмена', 'Bekor')}</button><button class="btn ball" id="cpwSave">${L('Сохранить', 'Saqlash')}</button></div></form>`, (el, close) => {

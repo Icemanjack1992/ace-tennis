@@ -180,6 +180,12 @@ export class DemoStore {
     this.db.meId = u.id; this.save(); return clone(u);
   }
   async signOut() { this.db.meId = null; this.save(); }
+  async deleteAccount() {
+    const me = this.me(); if (!me || me.role === 'admin') throw new Error('Аккаунт администратора удалить нельзя');
+    Object.assign(me, { role: 'player', firstName: 'Удалённый', lastName: 'игрок', photo: null, phone: '', region: '', district: '', coach: null, coachPro: false, deletedAt: new Date().toISOString() });
+    this.db.challenges = this.db.challenges.filter((c) => c.fromId !== me.id && c.toId !== me.id);
+    this.db.meId = null; this.save();
+  }
 
   // ---------- users ----------
   async saveProfile(patch) {

@@ -43,7 +43,7 @@ const RU = () => [
     'Мы обрабатываем: имя, фамилию, фото, пол, год рождения, район, номер телефона, адрес почты, удобное время игры, результаты матчей и тренировок, отзывы и комментарии.',
     'Цели: работа сервиса — поиск соперников, рейтинг, турниры, связь администрации с вами, безопасность. Другим пользователям видны имя, фото, район, уровень и статистика. Телефон и почту видит только администратор; телефон соперник видит только с вашего согласия.',
     'Данные хранятся у поставщика облачной базы данных (Supabase) на серверах за пределами Узбекистана. Принимая соглашение, вы даёте согласие на обработку ваших персональных данных и на их трансграничную передачу для этих целей (Закон Республики Узбекистан «О персональных данных»).',
-    'Вы можете исправить данные в анкете в любой момент или попросить администратора удалить аккаунт — данные удаляются, кроме записей о матчах с другими игроками, которые нужны для их рейтинга (без вашего имени).',
+    'Вы можете исправить данные в анкете в любой момент и сами удалить аккаунт: Профиль → «Удалить аккаунт» (или страница ace-tennis.uz/#/delete-account). Данные удаляются сразу, кроме записей о подтверждённых матчах с другими игроками, которые нужны для их рейтинга (без вашего имени).',
   ]],
   ['9. Фото, комментарии и новости', [
     'Вы отвечаете за то, что публикуете, и разрешаете показывать это внутри приложения. Мировые новости — это заголовки и короткие анонсы со ссылкой на источник. Права на эти материалы принадлежат их авторам.',
@@ -92,7 +92,7 @@ const UZ = () => [
     'Biz quyidagilarni qayta ishlaymiz: ism, familiya, rasm, jins, tug‘ilgan yil, tuman, telefon raqami, pochta manzili, qulay vaqt, o‘yin va mashg‘ulot natijalari, sharh va izohlar.',
     'Maqsad: xizmat ishlashi — raqib qidirish, reyting, turnirlar, ma’muriyatning siz bilan aloqasi, xavfsizlik. Boshqa foydalanuvchilarga ism, rasm, tuman, daraja va statistika ko‘rinadi. Telefon va pochtani faqat administrator ko‘radi; raqib telefoningizni faqat roziligingiz bilan ko‘radi.',
     'Ma’lumotlar bulutli ma’lumotlar bazasi yetkazib beruvchisida (Supabase) O‘zbekistondan tashqaridagi serverlarda saqlanadi. Kelishuvni qabul qilib, siz shaxsiy ma’lumotlaringizni shu maqsadlarda qayta ishlash va transchegaraviy uzatishga rozilik berasiz («Shaxsga doir ma’lumotlar to‘g‘risida»gi O‘zbekiston Respublikasi Qonuni).',
-    'Ma’lumotlarni anketada istalgan vaqtda o‘zgartirishingiz yoki administratordan akkauntni o‘chirishni so‘rashingiz mumkin — boshqa o‘yinchilar reytingi uchun kerak bo‘lgan o‘yin yozuvlaridan tashqari (ismingizsiz) ma’lumotlar o‘chiriladi.',
+    'Ma’lumotlarni anketada istalgan vaqtda o‘zgartirishingiz va akkauntni o‘zingiz o‘chirishingiz mumkin: Profil → «Akkauntni o‘chirish» (yoki ace-tennis.uz/#/delete-account sahifasi). Boshqa o‘yinchilar reytingi uchun kerak bo‘lgan tasdiqlangan o‘yin yozuvlaridan tashqari (ismingizsiz) ma’lumotlar darhol o‘chiriladi.',
   ]],
   ['9. Rasmlar, izohlar va yangiliklar', [
     'E’lon qilgan narsangiz uchun o‘zingiz javobgarsiz va uni ilova ichida ko‘rsatishga ruxsat berasiz. Jahon yangiliklari — manbaga havola bilan sarlavha va qisqa annotatsiyalar, ularga huquqlar mualliflarga tegishli.',
