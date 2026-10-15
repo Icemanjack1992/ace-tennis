@@ -4,6 +4,8 @@ import {
 } from './ui.js';
 import { termsHtml, termsTitle } from './terms.js';
 import { REGIONS, region, regionShort, districtName, regionOf } from './regions.js';
+import { courtLine, courtSelect, EQUIPMENT, equipmentName, adminCourts } from './courts.js';
+import { shareSheet } from './share.js';
 import { formatStrength, LEAGUES, fairplay, formatSets, winnerFromSets, FAIRPLAY_MIN_FOR_TOURNAMENT, seasonParts } from './rating.js';
 
 const rerender = () => window.dispatchEvent(new Event('ace:rerender'));
@@ -292,10 +294,25 @@ function coachRequestSheet(store) {
       <select id="cex" class="input" required><option value="">—</option>${EXPERIENCE.map(([v, ru, uz]) => `<option value="${v}">${esc(L(ru, uz))}</option>`).join('')}</select>
       <label class="f" for="cab">${L('О себе: где тренируете, с кем работаете, цена', 'O‘zingiz haqingizda: qayerda, kim bilan, narx')}</label>
       <textarea id="cab" class="input" maxlength="1000"></textarea>
+      <label class="f" for="cdoc">${L('Фото документа', 'Hujjat rasmi')}*</label>
+      <div class="muted small">${L('Диплом или сертификат тренера, удостоверение федерации, справка с места работы (клуб, школа, корт) — 1–3 фото. Видит только администратор.', 'Murabbiy diplomi yoki sertifikati, federatsiya guvohnomasi, ish joyidan ma’lumotnoma (klub, maktab, kort) — 1–3 ta rasm. Faqat administrator ko‘radi.')}</div>
+      <label class="btn ghost block" style="cursor:pointer;margin-top:8px">${icon.plus} <span id="cdocL">${L('Добавить фото документа', 'Hujjat rasmini qo‘shish')}</span><input type="file" id="cdoc" accept="image/*" multiple hidden></label>
+      <div id="cdocP" class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px"></div>
       ${termsCheck('cterms')}
       <div class="grid2 mt"><button type="button" class="btn ghost" data-close>${L('Отмена', 'Bekor')}</button><button class="btn ball" id="crSend">${L('Отправить', 'Yuborish')}</button></div>
     </form>`, (el, close) => {
     bindTerms(el);
+    let docs = [];
+    el.querySelector('#cdoc').addEventListener('change', async (e) => {
+      const files = [...e.target.files].slice(0, 3 - docs.length);
+      for (const f of files) {
+        const url = await resizeImage(f, 1600);
+        docs.push(new File([await (await fetch(url)).blob()], 'doc.jpg', { type: 'image/jpeg' }));
+        el.querySelector('#cdocP').insertAdjacentHTML('beforeend', `<img src="${url}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)">`);
+      }
+      e.target.value = '';
+      el.querySelector('#cdocL').textContent = docs.length >= 3 ? L('Добавлено 3 фото', '3 ta rasm qo‘shildi') : L(`Добавлено: ${docs.length}. Ещё фото`, `Qo‘shildi: ${docs.length}. Yana rasm`);
+    });
     el.querySelector('#crf').addEventListener('submit', (e) => {
       e.preventDefault();
       if (!el.querySelector('#cterms').checked) { toast(L('Примите пользовательское соглашение', 'Foydalanuvchi kelishuvini qabul qiling')); return; }
@@ -303,11 +320,12 @@ function coachRequestSheet(store) {
       if (!v('crg')) { toast(L('Выберите область', 'Viloyatni tanlang')); return; }
       const phone = normPhone(v('cph'));
       if (!phone) { toast(L('Введите номер в формате +998 90 123 45 67', 'Raqamni +998 90 123 45 67 shaklida kiriting')); return; }
+      if (!docs.length) { toast(L('Добавьте фото документа', 'Hujjat rasmini qo‘shing')); return; }
       act(el.querySelector('#crSend'), async () => {
-        await store.coachRequest({ firstName: v('cfn'), lastName: v('cln'), phone, experience: +v('cex') || null, about: v('cab'), region: v('crg'), termsVer: TERMS_VERSION });
+        await store.coachRequest({ firstName: v('cfn'), lastName: v('cln'), phone, experience: +v('cex') || null, about: v('cab'), region: v('crg'), termsVer: TERMS_VERSION, docs });
         close();
         sheet(`<h2 class="h">${L('Заявка отправлена', 'Ariza yuborildi')}</h2>
-          <div>${L('Администратор Ace Tennis позвонит вам. После одобрения нажмите «Регистрация», введите почту и пароль, а в анкете укажите этот же номер телефона — профиль тренера включится автоматически.', 'Administrator sizga qo‘ng‘iroq qiladi. Tasdiqlangach «Ro‘yxatdan o‘tish»ni bosing va anketada shu raqamni kiriting — murabbiy profili avtomatik yoqiladi.')}</div>
+          <div>${L('Администратор проверит документ и позвонит вам. После одобрения нажмите «Регистрация», введите почту и пароль, а в анкете укажите этот же номер телефона — профиль тренера включится автоматически.', 'Administrator sizga qo‘ng‘iroq qiladi. Tasdiqlangach «Ro‘yxatdan o‘tish»ni bosing va anketada shu raqamni kiriting — murabbiy profili avtomatik yoqiladi.')}</div>
           <button class="btn ball block mt" data-close>${L('Понятно', 'Tushunarli')}</button>`);
       });
     });
@@ -318,8 +336,11 @@ function coachRequestSheet(store) {
 // Onboarding / edit profile
 // =====================================================================
 export const onboarding = {
-  render(_, store) {
+  async render(_, store) {
     const u = store.me(); const isCoach = u.role === 'coach'; const isNew = !profileDone(u);
+    // The coach's region is set by the administrator
+    const rgLocked = isCoach && !!regionOf(u);
+    const myCourts = isCoach && regionOf(u) ? await store.courts(regionOf(u)).catch(() => []) : [];
     // The profile is complete, only the (new version of the) agreement is not accepted yet
     const termsOnly = isNew && profileDone({ ...u, termsVer: TERMS_VERSION });
     const opt = (list, val) => list.map(([v, ru, uz]) => `<option value="${esc(v)}" ${v === val ? 'selected' : ''}>${esc(L(ru, uz))}</option>`).join('');
@@ -342,7 +363,8 @@ export const onboarding = {
           <div><label class="f" for="by">${L('Год рождения', 'Tug‘ilgan yil')}*</label><select id="by" class="input" required><option value="">—</option>${BIRTH_YEARS.map((y) => `<option value="${y}" ${Number(u.birthYear) === y ? 'selected' : ''}>${y}</option>`).join('')}</select></div>
         </div>
         <label class="f" for="rg">${L('Область', 'Viloyat')}*</label>
-        <select id="rg" class="input" required><option value="">—</option>${REGIONS.map((r) => `<option value="${r.code}" ${r.code === regionOf(u) ? 'selected' : ''}>${esc(L(r.ru, r.uz))}</option>`).join('')}</select>
+        <select id="rg" class="input" required ${rgLocked ? 'disabled' : ''}><option value="">—</option>${REGIONS.map((r) => `<option value="${r.code}" ${r.code === regionOf(u) ? 'selected' : ''}>${esc(L(r.ru, r.uz))}</option>`).join('')}</select>
+        ${rgLocked ? `<div class="muted small" style="margin-top:6px">${L('Область тренера назначает администратор. Чтобы сменить — напишите администрации.', 'Murabbiy viloyatini administrator belgilaydi. O‘zgartirish uchun ma’muriyatga yozing.')}</div>` : ''}
         <label class="f" for="d">${L('Город или район', 'Shahar yoki tuman')}*</label>
         <select id="d" class="input" required>${districtOptions(regionOf(u), u.district)}</select>
         <div class="grid2">
@@ -357,6 +379,10 @@ export const onboarding = {
         <label class="f" for="pr">${L('Цена занятия, сум/час', 'Narx, so‘m/soat')}*</label><input id="pr" class="input" type="number" inputmode="numeric" min="0" required value="${esc(c.price ?? '')}">
         <label class="f" for="sp">${L('Специализация (через запятую)', 'Mutaxassislik (vergul bilan)')}*</label><input id="sp" class="input" required value="${esc((c.specialization || []).join(', '))}">
         <label class="f" for="ww">${L('С кем работаете', 'Kim bilan ishlaysiz')}*</label><select id="ww" class="input" required><option value="">—</option>${opt([['дети', 'Дети', 'Bolalar'], ['взрослые', 'Взрослые', 'Kattalar'], ['дети и взрослые', 'Дети и взрослые', 'Bolalar va kattalar']], c.worksWith)}</select>
+        <label class="f">${L('Что есть для занятий', 'Mashg‘ulot uchun nimalar bor')}</label>
+        <div id="eq">${EQUIPMENT.map(([k, ru, uz]) => `<label class="row" style="gap:10px;cursor:pointer;padding:8px 0;border-bottom:1px solid var(--line)"><input type="checkbox" value="${k}" ${(c.equipment || []).includes(k) ? 'checked' : ''} style="width:22px;height:22px;flex-shrink:0;accent-color:var(--court)"><span>${esc(L(ru, uz))}</span></label>`).join('')}</div>
+        ${myCourts.length ? `<label class="f">${L('Где тренируете', 'Qayerda mashg‘ulot o‘tkazasiz')}</label>
+        <div class="chips" id="ccourts">${myCourts.map((x) => `<button type="button" class="chip ${(c.courts || []).includes(x.id) ? 'on' : ''}" data-v="${x.id}" aria-pressed="${(c.courts || []).includes(x.id)}">${esc(x.name)}${x.city ? ' · ' + esc(x.city) : ''}</button>`).join('')}</div>` : ''}
       </div>` : ''}
       <div class="card">${termsCheck('terms', u.termsVer === TERMS_VERSION)}</div>
       <button class="btn ball block" type="submit">${isNew && !termsOnly ? L('Начать играть', 'O‘ynashni boshlash') : L('Сохранить', 'Saqlash')}</button>
@@ -367,11 +393,15 @@ export const onboarding = {
     bindTerms(root);
     const rg = root.querySelector('#rg');
     rg.addEventListener('change', () => { root.querySelector('#d').innerHTML = districtOptions(rg.value, ''); });
-    root.querySelectorAll('#times .chip').forEach((c) => c.addEventListener('click', () => { c.classList.toggle('on'); c.setAttribute('aria-pressed', c.classList.contains('on')); }));
+    root.querySelectorAll('#times .chip, #ccourts .chip').forEach((c) => c.addEventListener('click', () => { c.classList.toggle('on'); c.setAttribute('aria-pressed', c.classList.contains('on')); }));
     root.querySelector('#photo').addEventListener('change', async (e) => {
       const f = e.target.files[0]; if (!f) return;
-      photo = await resizeImage(f, 480);
-      if (store.uploadPhoto) { const blob = await (await fetch(photo)).blob(); photo = await store.uploadPhoto(new File([blob], 'p.jpg', { type: 'image/jpeg' })); }
+      const data = await resizeImage(f, 480);
+      // The photo goes to file storage; only its link is kept in the profile
+      if (store.uploadPhoto) {
+        try { const blob = await (await fetch(data)).blob(); photo = await store.uploadPhoto(new File([blob], 'p.jpg', { type: 'image/jpeg' })); }
+        catch (err) { toast(L('Фото не загрузилось, попробуйте ещё раз', 'Rasm yuklanmadi, qayta urinib ko‘ring') + ': ' + err.message); return; }
+      } else photo = data;
       root.querySelector('.av').outerHTML = `<span class="av lg"><img src="${esc(photo)}" alt=""></span>`;
     });
     root.querySelector('#pf').addEventListener('submit', async (e) => {
@@ -388,7 +418,11 @@ export const onboarding = {
       if (phone !== normPhone(me.phone)) patch.phone = phone;
       if (me.termsVer !== TERMS_VERSION) patch.termsVer = TERMS_VERSION;
       if (me.role !== 'coach') patch.selfLevel = v('lv');
-      else patch.coach = { ...(me.coach || {}), price: +v('pr'), specialization: v('sp').split(',').map((s) => s.trim()).filter(Boolean), worksWith: v('ww'), experience: +v('y') };
+      else {
+        patch.coach = { ...(me.coach || {}), price: +v('pr'), specialization: v('sp').split(',').map((s) => s.trim()).filter(Boolean), worksWith: v('ww'), experience: +v('y'),
+          equipment: [...root.querySelectorAll('#eq input:checked')].map((x) => x.value) };
+        if (root.querySelector('#ccourts')) patch.coach.courts = [...root.querySelectorAll('#ccourts .chip.on')].map((x) => x.dataset.v);
+      }
       const wasNew = !profileDone(me);
       await act(e.submitter, async () => { await store.saveProfile(patch); toast(L('Сохранено', 'Saqlandi')); go(wasNew ? '#/home' : '#/profile'); });
     });
@@ -421,7 +455,7 @@ export const confirmScreen = {
       return `<div class="card hl">
         <div class="row between"><span class="tag warn">${m.tournamentId ? L('Турнирный матч', 'Turnir o‘yini') : L('Матч', 'O‘yin')}</span><span class="muted strong">${L('осталось', 'qoldi')} ${hoursLeft(m.deadline)} ${L('ч', 'soat')}</span></div>
         <div class="row between mt"><div><div class="strong">${esc(sideLabel(m, store, m.teamA.includes(me.id) ? 'B' : 'A'))}</div>
-          <div class="muted">${m.type === 'double' ? L('Парный', 'Juftlik') : L('Одиночный', 'Yakka')} · ${fmtDate(m.playedAt, true)}</div></div>
+          <div class="muted">${m.type === 'double' ? L('Парный', 'Juftlik') : L('Одиночный', 'Yakka')} · ${fmtDate(m.playedAt, true)}</div>${courtLine(m.court)}</div>
           <div class="num" style="font-size:22px">${scoreFor(m, me.id)}</div></div>
         <div class="muted mt">${L('Записал(а)', 'Kiritdi')}: ${esc(fullName(store.user(m.createdBy)))} · ${won ? L('ваша победа', 'sizning g‘alabangiz') : L('ваше поражение', 'sizning mag‘lubiyatingiz')}</div>
         <div class="grid2 mt"><button class="btn" data-ok="match:${m.id}">${L('Подтвердить', 'Tasdiqlash')}</button><button class="btn ghost" data-no="match:${m.id}">${L('Оспорить', 'E’tiroz')}</button></div>
@@ -542,7 +576,7 @@ export const home = {
         <div class="sub">${L('Лига', 'Liga')} ${leagueName(t.league)} · ${fmtDate(t.startsAt)} – ${fmtDate(t.endsAt)} · ${t.entries.filter((e) => e.status === 'approved').length}/8</div>
         <div class="btn ball block mt">${L('Подать заявку', 'Ariza berish')}</div></a>`).join('')}
       ${incoming.map((c) => `<div class="card hl"><span class="tag warn">${c.format === 'question' ? L('Вопрос', 'Savol') : L('Вызов на матч', 'O‘yinga chaqiruv')}</span>
-        <div class="row mt">${avatar(store.user(c.fromId))}<div class="grow"><div class="strong">${esc(fullName(store.user(c.fromId)))}</div><div class="muted">${c.format === 'question' ? '' : fmtDate(c.at, true) + ' · '}${esc(c.note || '')}</div></div></div>
+        <div class="row mt">${avatar(store.user(c.fromId))}<div class="grow"><div class="strong">${esc(fullName(store.user(c.fromId)))}</div><div class="muted">${c.format === 'question' ? '' : fmtDate(c.at, true) + ' · '}${esc(c.note || '')}</div>${courtLine(c.court)}</div></div>
         ${call(c)}
         ${c.format === 'question' ? `<div class="grid2 mt"><button class="btn sm" data-ans="${c.id}:accepted">${L('Прочитано', 'O‘qildi')}</button></div>` :
         `<label class="row mt small strong" style="gap:8px;cursor:pointer"><input type="checkbox" data-share-ans="${c.id}" checked style="width:20px;height:20px;accent-color:var(--court)">${L('Показать мой номер сопернику', 'Raqamimni raqibga ko‘rsatish')}</label>
@@ -552,11 +586,13 @@ export const home = {
         <a href="#/tournaments" class="card dark" style="text-decoration:none;display:flex;flex-direction:column;gap:6px">${icon.trophy.replace('currentColor', '#D8F244')}<span class="num" style="font-size:18px;text-transform:uppercase">${L('Турниры', 'Turnirlar')}</span><span class="sub small">${myTour ? L('Вы участвуете', 'Siz ishtirokchisiz') : L('Заявки и сетки', 'Arizalar va to‘rlar')}</span></a>
         <a href="#/news" class="card" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:6px">${icon.news}<span class="num" style="font-size:18px;text-transform:uppercase">${L('Новости', 'Yangiliklar')}</span><span class="muted small">${L('Местные и мировые', 'Mahalliy va jahon')}</span></a>
       </div>
+      <a href="#/courts" class="card row" style="text-decoration:none;color:inherit;gap:14px"><span style="width:44px;height:44px;border-radius:12px;background:var(--ball);color:var(--court);display:flex;align-items:center;justify-content:center;flex-shrink:0">${icon.pin}</span>
+        <div class="grow"><div class="num" style="font-size:18px;text-transform:uppercase">${L('Корты', 'Kortlar')}</div><div class="muted small">${L('Карта кортов вашей области и ближайшие к вам', 'Viloyatingiz kortlari xaritasi va eng yaqinlari')}</div></div><span class="muted">›</span></a>
       ${sugg && !isCoach ? `<div class="card"><h2 class="h">${L('Вам подходит соперник', 'Sizga mos raqib')}</h2>
         <a href="#/profile/${sugg.id}" class="row" style="text-decoration:none;color:inherit">${avatar(sugg)}<div class="grow"><div class="strong">${esc(fullName(sugg))}</div><div class="muted">${L('УС', 'KD')} ${formatStrength(sugg.rating)} · ${leagueName(sugg.league)} · ${esc(sugg.availability.join(', '))}</div></div></a>
         <div class="row between mt">${formBadges(sugg.form)}<button class="btn ball sm" data-challenge="${sugg.id}">${L('Вызвать на матч', 'O‘yinga chaqirish')}</button></div></div>` : ''}
       <div class="card"><h2 class="h">${L('Ближайшие игры', 'Yaqin o‘yinlar')}</h2>
-        ${upcoming.length ? `<div class="list">${upcoming.map((c) => { const o = store.user(c.fromId === me.id ? c.toId : c.fromId); const d = new Date(c.at); return `<div><div class="row"><div style="width:44px;text-align:center"><div class="num" style="font-size:22px;line-height:1">${d.getDate()}</div><div class="muted small strong">${fmtDate(c.at).split(' ')[1].toUpperCase()}</div></div><div class="grow"><div class="strong">${L('Матч с', 'O‘yin:')} ${esc(shortName(o))}</div><div class="muted">${fmtDate(c.at, true).split(', ')[1]} · ${c.format === 'double' ? L('парный', 'juftlik') : L('одиночный', 'yakka')}</div></div><span class="tag ok">${L('Договорились', 'Kelishildi')}</span></div>
+        ${upcoming.length ? `<div class="list">${upcoming.map((c) => { const o = store.user(c.fromId === me.id ? c.toId : c.fromId); const d = new Date(c.at); return `<div><div class="row"><div style="width:44px;text-align:center"><div class="num" style="font-size:22px;line-height:1">${d.getDate()}</div><div class="muted small strong">${fmtDate(c.at).split(' ')[1].toUpperCase()}</div></div><div class="grow"><div class="strong">${L('Матч с', 'O‘yin:')} ${esc(shortName(o))}</div><div class="muted">${fmtDate(c.at, true).split(', ')[1]} · ${c.format === 'double' ? L('парный', 'juftlik') : L('одиночный', 'yakka')}</div>${courtLine(c.court)}</div><span class="tag ok">${L('Договорились', 'Kelishildi')}</span></div>
           ${call(c) || `<div class="muted small" style="margin:4px 0 0 56px">${L('Соперник пока не открыл номер', 'Raqib hali raqamini ochmadi')}</div>`}
           ${iShared(c) ? '' : `<button class="btn ghost sm" data-share="${c.id}" style="width:100%;margin-top:8px">${L('Поделиться моим номером', 'Raqamimni ulashish')}</button>`}</div>`; }).join('')}</div>`
         : `<div class="empty">${L('Пока нет запланированных игр. Найдите соперника в поиске.', 'Rejalashtirilgan o‘yin yo‘q. Qidiruvdan raqib toping.')}</div>`}
@@ -585,14 +621,16 @@ export const home = {
   },
 };
 
-export function challengeSheet(store, toId, question = false) {
+export async function challengeSheet(store, toId, question = false) {
   const u = store.user(toId);
+  const courts = question ? [] : await store.courts(regionOf(store.me()) || regionOf(u)).catch(() => []);
   const d = new Date(Date.now() + 24 * 3600e3); d.setHours(18, 0, 0, 0);
   sheet(`<h2 class="h">${question ? L('Вопрос тренеру', 'Murabbiyga savol') : L('Вызов на матч', 'O‘yinga chaqiruv')}</h2>
     <div class="row">${avatar(u)}<div class="strong">${esc(fullName(u))}</div></div>
     ${question ? '' : `<label class="f" for="at">${L('Дата и время', 'Sana va vaqt')}</label><input class="input" type="datetime-local" id="at" value="${toLocalInput(d)}">
-    <label class="f">${L('Формат', 'Format')}</label><div class="seg" id="fmt"><button class="on" data-v="single">${L('Одиночный', 'Yakka')}</button><button data-v="double">${L('Парный', 'Juftlik')}</button></div>`}
-    <label class="f" for="note">${question ? L('Ваш вопрос', 'Savolingiz') : L('Комментарий (корт, район)', 'Izoh (kort, tuman)')}</label>
+    <label class="f">${L('Формат', 'Format')}</label><div class="seg" id="fmt"><button class="on" data-v="single">${L('Одиночный', 'Yakka')}</button><button data-v="double">${L('Парный', 'Juftlik')}</button></div>
+    <label class="f" for="ccourt">${L('Где играем', 'Qayerda o‘ynaymiz')}</label>${courtSelect('ccourt', courts)}`}
+    <label class="f" for="note">${question ? L('Ваш вопрос', 'Savolingiz') : L('Комментарий', 'Izoh')}</label>
     <textarea class="input" id="note"></textarea>
     <label class="row mt small strong" style="gap:8px;cursor:pointer"><input type="checkbox" id="share" checked style="width:20px;height:20px;accent-color:var(--court)">${question ? L('Показать мой номер тренеру', 'Raqamimni murabbiyga ko‘rsatish') : L('Показать мой номер сопернику', 'Raqamimni raqibga ko‘rsatish')}</label>
     <div class="grid2 mt"><button class="btn ghost" data-close>${L('Отмена', 'Bekor')}</button><button class="btn ball" id="send">${L('Отправить', 'Yuborish')}</button></div>`,
@@ -604,7 +642,7 @@ export function challengeSheet(store, toId, question = false) {
       const note = el.querySelector('#note').value.trim();
       if (question && !note) { toast(L('Напишите вопрос', 'Savol yozing')); return; }
       await store.createChallenge({ toId, at: question ? new Date().toISOString() : new Date(el.querySelector('#at').value).toISOString(),
-        format: question ? 'question' : el.querySelector('#fmt .on').dataset.v, note, share: el.querySelector('#share').checked });
+        format: question ? 'question' : el.querySelector('#fmt .on').dataset.v, note, share: el.querySelector('#share').checked, courtId: el.querySelector('#ccourt')?.value || null });
       close(); toast(question ? L('Вопрос отправлен', 'Savol yuborildi') : L('Вызов отправлен — соперник увидит его на главной', 'Chaqiruv yuborildi — raqib uni bosh sahifada ko‘radi'));
       if (location.hash === '#/home') rerender();
     }));
@@ -638,6 +676,7 @@ export const add = {
     const myRg = regionOf(me);
     const players = (await store.listUsers()).filter((u) => u.id !== me.id && u.role !== 'admin' && (!myRg || regionOf(u) === myRg || u.id === q.get('opp')));
     const coaches = (await store.listUsers({ role: 'coach' })).filter((u) => u.id !== me.id);
+    const courts = await store.courts(myRg).catch(() => []);
     const opts = (list, sel) => `<option value="">${L('Выберите', 'Tanlang')}</option>` + list.sort((a, b) => fullName(a).localeCompare(fullName(b))).map((u) => `<option value="${u.id}" ${u.id === sel ? 'selected' : ''}>${esc(fullName(u))} · ${formatStrength(u.rating)}</option>`).join('');
     const now = toLocalInput(new Date());
     return `<div class="pagehead">${back('#/home', true)}<h1 class="title">${L('Новая запись', 'Yangi yozuv')}</h1></div>
@@ -657,6 +696,7 @@ export const add = {
           <label class="f" for="byNo">${L('Игрок из другой области', 'Boshqa viloyatdan o‘yinchi')}</label>
           ${idBox('byNo', L('Введите его ID из профиля', 'Profilidagi ID raqamini kiriting'))}
           <label class="f" for="when">${L('Дата и время', 'Sana va vaqt')}</label><input id="when" type="datetime-local" class="input" value="${now}" max="${now}">
+          <label class="f" for="mcourt">${L('Корт', 'Kort')}</label>${courtSelect('mcourt', courts, q.get('court') || '')}
         </div>
         <div class="card dark">
           <div class="row between"><span class="strong">${L('Счёт по сетам', 'Setlar bo‘yicha hisob')}</span>
@@ -740,7 +780,7 @@ export const add = {
         if (sets.some(([a, b]) => a === b)) { toast(L('В сете не может быть ничьей', 'Setda durang bo‘lmaydi')); return; }
         const playedAt = new Date(root.querySelector('#when').value).toISOString();
         await act(e.submitter, async () => {
-          await store.createMatch({ type, teamA, teamB, sets, decider: root.querySelector('#stb').checked ? 'supertb' : 'set', playedAt });
+          await store.createMatch({ type, teamA, teamB, sets, decider: root.querySelector('#stb').checked ? 'supertb' : 'set', playedAt, courtId: root.querySelector('#mcourt').value || null });
           toast(L('Отправлено сопернику на подтверждение', 'Raqibga tasdiqlash uchun yuborildi')); go('#/home');
         });
       });
@@ -838,7 +878,7 @@ export const profile = {
     const trainHours = hist.trainings.filter((t) => t.playerId === id).reduce((s, t) => s + t.hours, 0);
     return `<div class="hero">
       <div class="topbar">${own ? `<span></span>` : back('#/rating')}
-        ${own ? `<a class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" href="#/edit">${L('Редактировать', 'Tahrirlash')}</a>` : isAdm ? '' : `<button class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" data-complain>${L('Пожаловаться', 'Shikoyat')}</button>`}</div>
+        ${own ? `<span class="row" style="gap:8px"><button class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" data-sharecard>${icon.share.replace('width="24" height="24"', 'width="16" height="16"')} ${L('Поделиться', 'Ulashish')}</button><a class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" href="#/edit">${L('Редактировать', 'Tahrirlash')}</a></span>` : isAdm ? '' : `<button class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.25)" data-complain>${L('Пожаловаться', 'Shikoyat')}</button>`}</div>
       <div class="row mt" style="gap:16px">${avatar(u, 'lg')}<div class="grow"><h1 class="title" style="font-size:26px;text-transform:none">${esc(fullName(u))}</h1>
         <div class="sub">${isCoach ? L('Тренер', 'Murabbiy') : L('Любитель', 'Havaskor')} · ${isCoach ? yearsText(u.coach?.experience || u.years, 'exp') : yearsText(u.years)}</div>
         <div class="sub">${esc([u.hand, placeText(u)].filter(Boolean).join(' · '))}</div>
@@ -888,6 +928,7 @@ export const profile = {
       toast(L(`Обновляем до версии ${v}…`, `${v} versiyasiga yangilanmoqda…`)); await updateApp();
     }));
     root.querySelector('[data-challenge]')?.addEventListener('click', () => challengeSheet(store, id));
+    root.querySelector('[data-sharecard]')?.addEventListener('click', () => shareSheet(store, id));
     root.querySelector('[data-pw]')?.addEventListener('click', () => sheet(`<h2 class="h">${L('Новый пароль', 'Yangi parol')}</h2>
       <form id="cpw"><input id="npw" class="input" type="password" autocomplete="new-password" minlength="6" required placeholder="${L('Минимум 6 символов', 'Kamida 6 belgi')}">
       <div class="grid2 mt"><button type="button" class="btn ghost" data-close>${L('Отмена', 'Bekor')}</button><button class="btn ball" id="cpwSave">${L('Сохранить', 'Saqlash')}</button></div></form>`, (el, close) => {
@@ -985,7 +1026,7 @@ export const search = {
     if (sState.tab === 'coaches') {
       const cs = await store.coachRanking();
       return `<div class="pagehead"><h1 class="title">${L('Поиск', 'Qidiruv')}</h1></div><div class="wrap">${tabs}${qbox}
-        ${cs.map((c) => `<a href="#/coach/${c.id}" class="card" data-name="${esc(fullName(c).toLowerCase())}" style="text-decoration:none;color:inherit"><div class="row">${avatar(c)}<div class="grow"><div class="strong">${esc(fullName(c))} ${c.coach?.verified ? `<span class="tag ok">${L('подтверждён', 'tasdiqlangan')}</span>` : ''}</div><div class="muted">${yearsText(c.coach?.experience || c.years, 'exp')}${c.coach?.specialization?.length ? ' · ' + esc(c.coach.specialization.join(', ')) : ''}</div></div></div>
+        ${cs.map((c) => `<a href="#/coach/${c.id}" class="card" data-name="${esc(fullName(c).toLowerCase())}" style="text-decoration:none;color:inherit"><div class="row">${avatar(c)}<div class="grow"><div class="strong">${esc(fullName(c))} ${c.coachPro ? `<span class="tag ok">✓ ${L('проверенный', 'tekshirilgan')}</span>` : ''}</div><div class="muted">${yearsText(c.coach?.experience || c.years, 'exp')}${c.coach?.specialization?.length ? ' · ' + esc(c.coach.specialization.join(', ')) : ''}</div></div></div>
           <div class="row between mt"><span><span class="stars">★</span> <b>${c.stats.avg ? comma(c.stats.avg) : '—'}</b> <span class="muted">· ${c.stats.students} ${L('учеников', 'shogird')} · ${c.stats.trainings} ${L('занятий', 'mashg‘ulot')}</span></span><span class="strong">${c.coach?.price ? fmtNum(c.coach.price) + ' ' + L('сум/ч', 'so‘m/soat') : ''}</span></div></a>`).join('') }
         <div class="empty" data-none ${cs.length ? 'hidden' : ''}>${L('Тренеры не найдены', 'Murabbiy topilmadi')}</div>
       </div>`;
@@ -1039,11 +1080,14 @@ export const coach = {
     if (!store.user(params[0]) && store.ensureUsers) await store.ensureUsers([params[0]]);
     const c = store.user(params[0]); const me = store.me();
     if (!c) return `<div class="wrap"><div class="card">${L('Тренер не найден', 'Murabbiy topilmadi')}</div></div>`;
-    const [st, canRev] = await Promise.all([store.coachStats(c.id), store.canReview(c.id)]);
+    const [st, canRev, rgCourts] = await Promise.all([store.coachStats(c.id), store.canReview(c.id), (c.coach?.courts || []).length ? store.courts(regionOf(c)).catch(() => []) : []]);
     const own = c.id === me.id; const cc = c.coach || {};
+    const cCourts = rgCourts.filter((x) => (cc.courts || []).includes(x.id));
+    const isAdm = me.role === 'admin';
     const myRev = st.reviews.find((r) => r.authorId === me.id);
     return `<div class="hero">
-      <div class="topbar">${back('#/search')}<span class="tag ball">${icon.check.replace('width="24" height="24"', 'width="14" height="14"')} ${L('Тренер подтверждён', 'Murabbiy tasdiqlangan')}</span></div>
+      <div class="topbar">${back(isAdm ? '#/search' : '#/search')}<span class="row" style="gap:8px">${own ? `<button class="btn ghost sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.3)" data-sharecard>${icon.share.replace('width="24" height="24"', 'width="16" height="16"')} ${L('Поделиться', 'Ulashish')}</button>` : ''}
+        ${c.coachPro ? `<span class="tag ball">${icon.check.replace('width="24" height="24"', 'width="14" height="14"')} ${L('Проверенный тренер', 'Tekshirilgan murabbiy')}</span>` : `<span class="tag soft">${L('Тренер', 'Murabbiy')}</span>`}</span></div>
       <div class="row mt" style="gap:16px">${avatar(c, 'lg')}<div><h1 class="title" style="font-size:26px;text-transform:none">${esc(fullName(c))}</h1>
         <div class="sub">${yearsText(cc.experience || c.years, 'exp')}</div>
         <div class="row" style="gap:6px;margin-top:4px"><span class="stars">${'★'.repeat(Math.round(st.avg || 0))}</span><b>${st.avg ? comma(st.avg) : '—'}</b><span class="sub small">· ${st.reviews.length} ${L('отзывов', 'fikr')}</span></div></div></div>
@@ -1057,6 +1101,12 @@ export const coach = {
     <div class="wrap">
       <div class="card"><div class="row between"><div><div class="muted small strong">${L('СТОИМОСТЬ', 'NARX')}</div><div class="num" style="font-size:22px">${cc.price ? fmtNum(cc.price) + ' ' + L('сум / час', 'so‘m / soat') : L('по договорённости', 'kelishuv asosida')}</div></div><span class="muted strong">${esc(cc.worksWith || '')}</span></div>
         <div class="chips mt">${(cc.specialization || []).map((s) => `<span class="tag ok" style="text-transform:none;letter-spacing:0;font-size:13px">${esc(s)}</span>`).join('')}</div></div>
+      ${(cc.equipment || []).length ? `<div class="card"><h2 class="h">${L('Есть для занятий', 'Mashg‘ulot uchun bor')}</h2><div class="list">${cc.equipment.map((k) => `<div class="row" style="gap:10px"><span style="width:24px;height:24px;border-radius:50%;background:var(--ball);color:var(--court);display:flex;align-items:center;justify-content:center;flex-shrink:0">${icon.check.replace('width="24" height="24"', 'width="14" height="14"')}</span><span>${esc(equipmentName(k))}</span></div>`).join('')}</div></div>` : ''}
+      ${cCourts.length ? `<div class="card"><h2 class="h">${L('Где тренирует', 'Qayerda mashg‘ulot o‘tkazadi')}</h2>${cCourts.map((x) => courtLine(x, 'strong')).join('')}</div>` : ''}
+      ${isAdm ? `<div class="card"><h2 class="h">${L('Для администратора', 'Administrator uchun')}</h2>
+        <label class="f" for="acRg">${L('Область тренера', 'Murabbiy viloyati')}</label><select class="input" id="acRg">${REGIONS.map((x) => `<option value="${x.code}" ${x.code === regionOf(c) ? 'selected' : ''}>${esc(regionShort(x.code))}</option>`).join('')}</select>
+        <label class="row mt small strong" style="gap:8px;cursor:pointer"><input type="checkbox" id="acPro" ${c.coachPro ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--court)">${L('Проверенный тренер (документ проверен)', 'Tekshirilgan murabbiy (hujjat tekshirilgan)')}</label>
+        <button class="btn block mt" data-acsave>${L('Сохранить', 'Saqlash')}</button></div>` : ''}
       ${own || me.role === 'admin' ? '' : `<div class="grid2"><button class="btn ghost" data-ask>${L('Задать вопрос', 'Savol berish')}</button><a class="btn ball" href="#/add/training?coach=${c.id}">${L('Записать тренировку', 'Mashg‘ulot yozish')}</a></div>`}
       ${canRev && !own ? `<div class="card"><h2 class="h">${myRev ? L('Ваш отзыв', 'Sizning fikringiz') : L('Оставить отзыв', 'Fikr qoldirish')}</h2>
         <div class="starpick" id="sp">${[1, 2, 3, 4, 5].map((n) => `<button data-s="${n}" class="${n <= (myRev?.stars || 5) ? 'on' : ''}" aria-label="${n}">★</button>`).join('')}</div>
@@ -1068,6 +1118,11 @@ export const coach = {
   },
   mount(root, params, store) {
     root.querySelector('[data-ask]')?.addEventListener('click', () => challengeSheet(store, params[0], true));
+    root.querySelector('[data-sharecard]')?.addEventListener('click', () => shareSheet(store, params[0]));
+    root.querySelector('[data-acsave]')?.addEventListener('click', (e) => act(e.currentTarget, async () => {
+      await store.setCoach(params[0], { region: root.querySelector('#acRg').value, pro: root.querySelector('#acPro').checked });
+      toast(L('Сохранено', 'Saqlandi')); rerender();
+    }));
     let stars = +(root.querySelector('#sp .on:last-of-type')?.dataset.s || 5);
     root.querySelectorAll('#sp [data-s]').forEach((b) => b.addEventListener('click', () => { stars = +b.dataset.s; root.querySelectorAll('#sp [data-s]').forEach((x) => x.classList.toggle('on', +x.dataset.s <= stars)); }));
     root.querySelector('#sendRev')?.addEventListener('click', (e) => act(e.target, async () => {
@@ -1299,7 +1354,7 @@ export const admin = {
     const s0 = await store.stats('');
     const tabs = [['overview', L('Обзор', 'Umumiy')], ['support', L('Обращения', 'Murojaatlar'), s0.support], ['users', L('Люди', 'Odamlar')],
       ['complaints', L('Жалобы', 'Shikoyatlar'), s0.openComplaints + s0.disputes], ['coaches', L('Тренеры', 'Murabbiylar'), s0.coachRequests],
-      ['news', L('Новости', 'Yangiliklar')]];
+      ['courts', L('Корты', 'Kortlar')], ['news', L('Новости', 'Yangiliklar')]];
     const head = `<div class="hero"><div class="topbar"><span class="brand">${logo(30)} ${L('Админ', 'Admin')}</span><button class="iconbtn" data-logout aria-label="${L('Выйти', 'Chiqish')}">${icon.close}</button></div></div>
       <div class="wrap" style="padding-bottom:0"><div class="chips scroll">${tabs.map(([k, l, n]) => `<a class="chip ${tab === k ? 'on' : ''}" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;${tab === k ? '' : 'color:inherit'}" href="#/admin/${k}">${l}${n ? `<span class="tag bad" style="padding:1px 7px">${n}</span>` : ''}</a>`).join('')}</div></div>`;
     let body = '';
@@ -1367,9 +1422,14 @@ export const admin = {
         ${rs.map((r) => `<div class="card"><div class="row between"><span class="strong">${esc(r.firstName)} ${esc(r.lastName)}</span><span class="tag ${st[r.status][1]}">${st[r.status][0]}</span></div>
           <div class="muted">${r.region ? `<b>${esc(regionShort(r.region))}</b> · ` : `${L('область не указана', 'viloyat ko‘rsatilmagan')} · `}${yearsText(r.experience, 'exp')} · ${fmtDate(r.createdAt, true)}</div>
           ${r.about ? `<div class="mt">${esc(r.about)}</div>` : ''}
+          ${r.docs?.length ? `<div class="row mt" data-docs="${esc(JSON.stringify(r.docs))}" style="gap:8px;flex-wrap:wrap"><span class="muted small">${L('Загружаем документы…', 'Hujjatlar yuklanmoqda…')}</span></div>`
+            : `<div class="mt"><span class="tag bad">${L('без документа', 'hujjatsiz')}</span></div>`}
           <a class="btn ghost sm" href="tel:+${esc(String(r.phone).replace(/\D/g, ''))}" style="width:100%;margin-top:10px">📞 ${esc(fmtPhone(String(r.phone).replace(/\D/g, '')))}</a>
-          ${r.status === 'new' ? `<div class="grid2 mt"><button class="btn sm" data-creq="${r.id}:1">${L('Одобрить', 'Tasdiqlash')}</button><button class="btn ghost sm" data-creq="${r.id}:0">${L('Отклонить', 'Rad etish')}</button></div>` : ''}</div>`).join('') || `<div class="card"><div class="muted">${L('Заявок пока нет', 'Hozircha ariza yo‘q')}</div></div>`}`;
+          ${r.status === 'new' ? `<label class="f" for="creg-${r.id}">${L('Область тренера', 'Murabbiy viloyati')}</label><select class="input" id="creg-${r.id}">${REGIONS.map((x) => `<option value="${x.code}" ${x.code === r.region ? 'selected' : ''}>${esc(regionShort(x.code))}</option>`).join('')}</select>
+          <div class="muted small" style="margin-top:6px">${r.docs?.length ? L('После одобрения тренер получит отметку «Проверенный тренер».', 'Tasdiqlangach murabbiy «Tekshirilgan murabbiy» belgisini oladi.') : L('Без документа тренер будет без отметки «Проверенный».', 'Hujjatsiz murabbiy «Tekshirilgan» belgisiz bo‘ladi.')}</div>
+          <div class="grid2 mt"><button class="btn sm" data-creq="${r.id}:1">${L('Одобрить', 'Tasdiqlash')}</button><button class="btn ghost sm" data-creq="${r.id}:0">${L('Отклонить', 'Rad etish')}</button></div>` : ''}</div>`).join('') || `<div class="card"><div class="muted">${L('Заявок пока нет', 'Hozircha ariza yo‘q')}</div></div>`}`;
     }
+    if (tab === 'courts') body = await adminCourts.body(store);
     if (tab === 'tournaments') {
       const ts = (await store.tournaments()).filter((t) => !aState.region || (t.region || 'namangan') === aState.region);
       body = `${regionSelect('aRegion', aState.region)}
@@ -1401,13 +1461,21 @@ export const admin = {
     return `${head}<div class="wrap">${body}</div>`;
   },
   mount(root, params, store) {
+    if (params[0] === 'courts') adminCourts.bind(root, store, rerender);
+    // Coach documents: temporary links, opened full size in a new tab
+    root.querySelectorAll('[data-docs]').forEach(async (box) => {
+      try {
+        const urls = await store.coachDocUrls(JSON.parse(box.dataset.docs));
+        box.innerHTML = urls.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="${L('Документ', 'Hujjat')}" style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid var(--line)"></a>`).join('') || `<span class="muted small">${L('Документ не найден', 'Hujjat topilmadi')}</span>`;
+      } catch (e) { box.innerHTML = `<span class="muted small">${esc(e.message)}</span>`; }
+    });
     root.querySelector('[data-logout]')?.addEventListener('click', async () => { await store.signOut(); go('#/login'); });
     root.querySelectorAll('[data-disp]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [id, k] = b.dataset.disp.split(':'); await store.resolveDispute(id, k === '1'); rerender(); })));
     root.querySelectorAll('[data-cmp]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [id, k] = b.dataset.cmp.split(':'); await store.resolveComplaint(id, k === '1'); rerender(); })));
     root.querySelectorAll('[data-ent]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [t, u, k] = b.dataset.ent.split(':'); await store.approveEntry(t, u, k === '1'); rerender(); })));
     root.querySelectorAll('[data-start]').forEach((b) => b.addEventListener('click', () => act(b, async () => { await store.startTournament(b.dataset.start); toast(L('Сетка создана', 'To‘r yaratildi')); rerender(); })));
     root.querySelectorAll('[data-creq]').forEach((b) => b.addEventListener('click', () => act(b, async () => {
-      const [id, k] = b.dataset.creq.split(':'); await store.resolveCoachRequest(id, k === '1');
+      const [id, k] = b.dataset.creq.split(':'); await store.resolveCoachRequest(id, k === '1', root.querySelector(`#creg-${id}`)?.value || null);
       toast(k === '1' ? L('Одобрено. Тренер получит роль после регистрации с этим номером', 'Tasdiqlandi') : L('Заявка отклонена', 'Ariza rad etildi')); rerender();
     })));
     root.querySelectorAll('[data-banu]').forEach((b) => b.addEventListener('click', () => { const u = store.user(b.dataset.banu) || { id: b.dataset.banu }; banSheet(store, u, rerender); }));

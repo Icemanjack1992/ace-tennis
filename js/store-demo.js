@@ -16,6 +16,15 @@ const DISTRICTS = ['г. Наманган', 'Чустский район', 'На�
 const toMonths = (y) => (y >= 4 ? 48 : y * 12);
 const TIMES = ['утро', 'день', 'вечер', 'выходные'];
 
+// Demo courts (real places from OpenStreetMap)
+const DEMO_COURTS = [
+  ['namangan', 'Наманган', 'Теннисные корты «Дўстлик»', '', 41.00167, 71.60223, 9, 'hard', true],
+  ['namangan', 'Наманган', 'Теннисные корты', '', 40.99883, 71.60807, 3, '', false],
+  ['andijan', 'Андижан', 'Корты стадиона «Бобур Арена»', '', 40.7779, 72.3517, 2, 'hard', true],
+  ['tashkent_city', 'Ташкент', 'СК «Юнусабад»', 'Юнусабадский район', 41.3469, 69.28396, 6, 'mixed', true],
+].map(([region, city, name, address, lat, lng, courts, surface, checked], i) => ({ id: 'court' + i, region, city, name, address, lat, lng, courts, surface, indoor: false, lights: i === 0, phone: '', price: '', note: '', checked, active: true }));
+const courtSnap = (c) => (c ? { id: c.id, name: c.name, city: c.city, lat: c.lat, lng: c.lng } : null);
+
 function seed() {
   const db = { users: [], matches: [], trainings: [], challenges: [], reviews: [], fairplay: [],
     complaints: [], tournaments: [], news: [], achievements: [], meId: null, seeded: nowIso() };
@@ -46,7 +55,8 @@ function seed() {
   for (const [f, l, g, exp, spec, ww] of coaches) {
     db.users.push(newPlayer({
       role: 'coach', firstName: f, lastName: l, gender: g, years: 48, region: 'namangan', district: 'г. Наманган', phone: '', availability: ['утро', 'вечер'],
-      coach: { verified: true, price: null, specialization: spec.split(';'), worksWith: ww, experience: 48 },
+      coach: { verified: true, price: null, specialization: spec.split(';'), worksWith: ww, experience: 48, equipment: f === 'Дильшод' ? ['balls', 'rackets', 'machine'] : [], courts: f === 'Дильшод' ? ['court0'] : [] },
+      coachPro: f === 'Дильшод',
       createdAt: addHours(nowIso(), -24 * 150),
     }));
   }
@@ -147,6 +157,7 @@ export class DemoStore {
     this.db.users.forEach(rollSeason);
     // Player numbers (ID) and region for old demo data
     this.db.users.forEach((u, i) => { if (!u.playerNo) u.playerNo = 10001 + i; if (!u.region && u.district) u.region = 'namangan'; });
+    if (!this.db.courts) this.db.courts = clone(DEMO_COURTS);
     this.save();
   }
   save() { safeSet(JSON.stringify(this.db)); }
@@ -184,6 +195,7 @@ export class DemoStore {
     const me = this.me();
     const m = newMatch({ ...data, createdBy: me.id });
     if (!winnerFromSets(m.sets)) throw new Error('Счёт по сетам не определяет победителя');
+    m.courtId = data.courtId || null; m.court = courtSnap(this.db.courts.find((c) => c.id === data.courtId));
     this.db.matches.push(m); this.save(); return clone(m);
   }
   async createTraining(data) {
@@ -281,8 +293,9 @@ export class DemoStore {
     const id = this.db.meId;
     return clone(this.db.challenges.filter((c) => c.fromId === id || c.toId === id).sort((a, b) => a.at.localeCompare(b.at)));
   }
-  async createChallenge({ toId, at, format, note, share = false }) {
-    this.db.challenges.push({ id: uid(), fromId: this.db.meId, toId, at, format, note, status: 'sent', shareFrom: !!share, shareTo: false, createdAt: nowIso() });
+  async createChallenge({ toId, at, format, note, share = false, courtId = null }) {
+    this.db.challenges.push({ id: uid(), fromId: this.db.meId, toId, at, format, note, status: 'sent', shareFrom: !!share, shareTo: false, createdAt: nowIso(),
+      courtId, court: courtSnap(this.db.courts.find((c) => c.id === courtId)) });
     this.save();
   }
   async answerChallenge(id, status, share = false) {
@@ -417,17 +430,35 @@ export class DemoStore {
   async coachRequest(d) {
     this.db.coachRequests = this.db.coachRequests || [];
     if (this.db.coachRequests.some((r) => r.phone === d.phone && r.status === 'new')) throw new Error('Заявка с этим номером уже отправлена — администратор свяжется с вами');
-    this.db.coachRequests.unshift({ id: uid(), ...d, status: 'new', createdAt: nowIso() }); this.save();
+    const docs = [];
+    for (const f of d.docs || []) docs.push(await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(f); }));
+    this.db.coachRequests.unshift({ id: uid(), ...d, docs, status: 'new', createdAt: nowIso() }); this.save();
+  }
+  async coachDocUrls(paths) { return paths || []; }
+  async setCoach(userId, { region, pro }) {
+    const u = this.db.users.find((x) => x.id === userId); if (!u || u.role !== 'coach') throw new Error('Тренер не найден');
+    if (region) u.region = region; if (pro !== undefined && pro !== null) u.coachPro = !!pro; this.save();
+  }
+  async courts(region) { return clone(this.db.courts.filter((c) => (!region || c.region === region) && (c.active || this.me()?.role === 'admin'))); }
+  async saveCourt(c) {
+    if (c.id) Object.assign(this.db.courts.find((x) => x.id === c.id), c);
+    else this.db.courts.push({ indoor: false, lights: false, phone: '', price: '', note: '', checked: true, active: true, ...c, id: uid() });
+    this.save();
   }
   async coachRequests() { return clone(this.db.coachRequests || []); }
-  async resolveCoachRequest(id, approve) {
+  async resolveCoachRequest(id, approve, region = null) {
     const r = (this.db.coachRequests || []).find((x) => x.id === id);
-    if (approve) await this.inviteCoach({ phone: '+' + r.phone, firstName: r.firstName, lastName: r.lastName });
+    if (approve) {
+      r.region = region || r.region;
+      if (!r.region) throw new Error('Выберите область тренера');
+      await this.inviteCoach({ phone: '+' + r.phone, firstName: r.firstName, lastName: r.lastName, region: r.region, pro: (r.docs || []).length > 0 });
+    }
     r.status = approve ? 'approved' : 'rejected'; this.save();
   }
-  async inviteCoach({ phone, firstName, lastName }) {
+  async inviteCoach({ phone, firstName, lastName, region = '', pro = false }) {
     let u = this.db.users.find((x) => x.phone && x.phone.replace(/\D/g, '') === phone.replace(/\D/g, ''));
     if (!u) { u = newPlayer({ phone, firstName, lastName }); this.db.users.push(u); }
+    if (region) u.region = region; if (pro) u.coachPro = true;
     u.role = 'coach'; u.coach = { verified: true, price: null, specialization: [], worksWith: '', experience: u.years || 0, ...(u.coach || {}) };
     this.save();
   }

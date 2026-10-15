@@ -8,6 +8,7 @@ const toUser = (r) => r && ({
   availability: r.availability || [], phone: r.phone, rating: r.rating, matches: r.matches, wins: r.wins,
   form: r.form, league: r.league, pointsQ: r.points_q, pointsY: r.points_y, fpSum: Number(r.fp_sum),
   fpCount: r.fp_count, bannedUntil: r.banned_until, top10Days: r.top10_days, top1Days: r.top1_days,
+  coachPro: !!r.coach_pro,
   coach: r.role === 'coach' ? { verified: r.coach_verified, price: null, specialization: [], worksWith: '', experience: r.years, ...(r.coach || {}) } : null,
   lang: r.lang, createdAt: r.created_at, termsVer: r.terms_ver || '', playerNo: r.player_no || null, banReason: r.ban_reason || '', updatedAt: r.updated_at || null,
 });
@@ -25,8 +26,14 @@ const toMatch = (r) => ({
   id: r.id, type: r.type, teamA: r.team_a, teamB: r.team_b, sets: r.sets, decider: r.decider, playedAt: r.played_at,
   createdBy: r.created_by, tournamentId: r.tournament_id, round: r.round, status: r.status, winner: r.winner,
   deltas: r.deltas || {}, points: r.points || {}, deadline: r.deadline, expired: r.expired, complained: r.complained,
-  disputeReason: r.dispute_reason, createdAt: r.created_at,
+  disputeReason: r.dispute_reason, createdAt: r.created_at, courtId: r.court_id || null, court: r.court || null,
 });
+// Courts: the joined court of a match / challenge (name, city, point on the map)
+const MATCH_COLS = '*, court:courts(id,name,city,lat,lng)';
+const toCourt = (r) => ({ id: r.id, region: r.region, city: r.city || '', name: r.name, address: r.address || '', lat: r.lat, lng: r.lng, courts: r.courts_count || 1,
+  surface: r.surface || '', indoor: !!r.indoor, lights: !!r.lights, phone: r.phone || '', price: r.price || '', note: r.note || '', checked: !!r.checked, active: r.active !== false });
+const fromCourt = (c) => ({ region: c.region, city: c.city || '', name: c.name, address: c.address || '', lat: c.lat ?? null, lng: c.lng ?? null, courts_count: +c.courts || 1,
+  surface: c.surface || '', indoor: !!c.indoor, lights: !!c.lights, phone: c.phone || '', price: c.price || '', note: c.note || '', checked: c.checked !== false, active: c.active !== false });
 const toTraining = (r) => ({
   id: r.id, playerId: r.player_id, coachId: r.coach_id, hours: Number(r.hours), skills: r.skills, note: r.note,
   playedAt: r.played_at, status: r.status, deadline: r.deadline, createdAt: r.created_at,
@@ -37,7 +44,7 @@ const toTournament = (r, entries = []) => ({
   entries: entries.filter((e) => e.tournament_id === r.id).map((e) => ({ userId: e.user_id, status: e.status })),
 });
 // Phone numbers are not readable by other users (supabase/update-02.sql)
-const PROFILE_COLS = 'id,role,first_name,last_name,photo_url,gender,birth_year,region,district,years,self_level,hand,availability,rating,matches,wins,form,league,points_q,points_y,q_key,y_key,fp_sum,fp_count,banned_until,top10_days,top1_days,coach_verified,coach,lang,created_at,tg_username,terms_ver,player_no,ban_reason,updated_at';
+const PROFILE_COLS = 'id,role,first_name,last_name,photo_url,gender,birth_year,region,district,years,self_level,hand,availability,rating,matches,wins,form,league,points_q,points_y,q_key,y_key,fp_sum,fp_count,banned_until,top10_days,top1_days,coach_verified,coach,lang,created_at,tg_username,terms_ver,player_no,ban_reason,updated_at,coach_pro';
 // Supabase auth messages → Russian
 function authError(m = '') {
   if (/invalid login credentials/i.test(m)) return 'Неверная почта или пароль';
@@ -62,12 +69,12 @@ const USERS_TTL = 3 * 60e3;  // profiles of my region: only changes are download
 const FULL_TTL = 24 * 3600e3; // once a day the region list is downloaded in full
 const PENDING_TTL = 30e3;    // "waiting for my confirmation" gate
 const CACHED = ['adminContacts', 'adminUsers', 'supportThreads', 'supportThread', 'supportMine', 'supportUnread', 'coachRequests', 'contacts', 'ranking', 'leaders', 'fairplayRanking', 'achievements', 'suggestOpponent', 'challenges', 'outgoing', 'history',
-  'coachStats', 'canReview', 'coachRanking', 'ratedFairplay', 'complaints', 'disputes', 'tournaments', 'tournament', 'news', 'worldNews', 'stats'];
-const MUTATIONS = ['supportSend', 'supportReply', 'supportRead', 'resolveCoachRequest', 'sharePhone', 'saveProfile', 'createMatch', 'createTraining', 'confirm', 'dispute', 'cancelOwn', 'createChallenge', 'answerChallenge',
+  'coachStats', 'canReview', 'courts', 'coachRanking', 'ratedFairplay', 'complaints', 'disputes', 'tournaments', 'tournament', 'news', 'worldNews', 'stats'];
+const MUTATIONS = ['saveCourt', 'setCoach', 'supportSend', 'supportReply', 'supportRead', 'resolveCoachRequest', 'sharePhone', 'saveProfile', 'createMatch', 'createTraining', 'confirm', 'dispute', 'cancelOwn', 'createChallenge', 'answerChallenge',
   'addReview', 'rateFairplay', 'complain', 'resolveComplaint', 'resolveDispute', 'setBan', 'applyTournament', 'createTournament',
   'approveEntry', 'startTournament', 'createTournamentMatch', 'addNews', 'deleteNews', 'addComment', 'hideComment', 'inviteCoach'];
 // These change ratings / profiles, so the profile list is reloaded too
-const PROFILE_MUTATIONS = new Set(['resolveCoachRequest', 'saveProfile', 'confirm', 'rateFairplay', 'resolveComplaint', 'resolveDispute', 'setBan', 'createTournamentMatch', 'inviteCoach']);
+const PROFILE_MUTATIONS = new Set(['setCoach', 'resolveCoachRequest', 'saveProfile', 'confirm', 'rateFairplay', 'resolveComplaint', 'resolveDispute', 'setBan', 'createTournamentMatch', 'inviteCoach']);
 // Telegram login nonce lives 15 minutes; localStorage survives iPhone reloading the app while you are in Telegram
 const TG_KEY = 'ace_tg_login';
 const tgRead = () => { try { const v = JSON.parse(localStorage.getItem(TG_KEY) || 'null'); return v && Date.now() - v.t < 15 * 60e3 ? v : null; } catch { return null; } };
@@ -341,7 +348,7 @@ export class SupabaseStore {
   }
   async uploadPhoto(file) {
     const path = `${this.uid()}/${Date.now()}.jpg`;
-    check(await this.sb.storage.from('photos').upload(path, file, { upsert: true, contentType: file.type }));
+    check(await this.sb.storage.from('photos').upload(path, file, { upsert: false, contentType: file.type }));
     return this.sb.storage.from('photos').getPublicUrl(path).data.publicUrl;
   }
   // Players of my region (other regions: findByNo / admin lists)
@@ -358,7 +365,7 @@ export class SupabaseStore {
   // ---------- matches & trainings ----------
   async createMatch(d) {
     const m = toMatch(check(await this.sb.from('matches').insert({
-      type: d.type, team_a: d.teamA, team_b: d.teamB, sets: d.sets, decider: d.decider, played_at: d.playedAt, created_by: this.uid(),
+      type: d.type, team_a: d.teamA, team_b: d.teamB, sets: d.sets, decider: d.decider, played_at: d.playedAt, created_by: this.uid(), court_id: d.courtId || null,
     }).select().single()));
     if (m.status === 'pending') this.notify('match', m.id);
     return m;
@@ -374,7 +381,7 @@ export class SupabaseStore {
   async pending() {
     const id = this.uid(); const now = new Date().toISOString();
     const [mr, tr] = await Promise.all([
-      this.sb.from('matches').select('*').eq('status', 'pending').gt('deadline', now).or(`team_a.cs.{${id}},team_b.cs.{${id}}`),
+      this.sb.from('matches').select(MATCH_COLS).eq('status', 'pending').gt('deadline', now).or(`team_a.cs.{${id}},team_b.cs.{${id}}`),
       this.sb.from('trainings').select('*').eq('status', 'pending').eq('coach_id', id).gt('deadline', now),
     ]);
     const ms = check(mr).map(toMatch).filter((m) => (m.teamA.includes(m.createdBy) ? m.teamB : m.teamA).includes(id));
@@ -396,7 +403,7 @@ export class SupabaseStore {
   async outgoing() {
     const id = this.uid();
     const [mr, tr] = await Promise.all([
-      this.sb.from('matches').select('*').eq('created_by', id).or('status.eq.pending,and(status.eq.cancelled,expired.eq.true,complained.eq.false)'),
+      this.sb.from('matches').select(MATCH_COLS).eq('created_by', id).or('status.eq.pending,and(status.eq.cancelled,expired.eq.true,complained.eq.false)'),
       this.sb.from('trainings').select('*').eq('player_id', id).eq('status', 'pending'),
     ]);
     const out = { matches: check(mr).map(toMatch), trainings: check(tr).map(toTraining) };
@@ -411,7 +418,7 @@ export class SupabaseStore {
   async cancelOwn(kind, id) { check(await this.sb.rpc('cancel_own', { p_kind: kind, p_id: id })); }
   async history(userId) {
     const [mr, tr] = await Promise.all([
-      this.sb.from('matches').select('*').eq('status', 'confirmed').or(`team_a.cs.{${userId}},team_b.cs.{${userId}}`).order('played_at', { ascending: false }).limit(50),
+      this.sb.from('matches').select(MATCH_COLS).eq('status', 'confirmed').or(`team_a.cs.{${userId}},team_b.cs.{${userId}}`).order('played_at', { ascending: false }).limit(50),
       this.sb.from('trainings').select('*').eq('status', 'confirmed').or(`player_id.eq.${userId},coach_id.eq.${userId}`).order('played_at', { ascending: false }).limit(50),
     ]);
     const out = { matches: check(mr).map(toMatch), trainings: check(tr).map(toTraining) };
@@ -475,14 +482,14 @@ export class SupabaseStore {
   }
   async challenges() {
     const since = new Date(Date.now() - 60 * 864e5).toISOString(); // older challenges are not shown anywhere
-    const rows = check(await this.sb.from('challenges').select('*').gte('created_at', since).order('at').limit(300));
+    const rows = check(await this.sb.from('challenges').select('*, court:courts(id,name,city,lat,lng)').gte('created_at', since).order('at').limit(300));
     await this.ensureUsers(rows.flatMap((c) => [c.from_id, c.to_id]));
     return rows.map((c) => ({
       id: c.id, fromId: c.from_id, toId: c.to_id, at: c.at, format: c.format, note: c.note, status: c.status, createdAt: c.created_at,
-      shareFrom: !!c.share_from, shareTo: !!c.share_to }));
+      shareFrom: !!c.share_from, shareTo: !!c.share_to, courtId: c.court_id || null, court: c.court || null }));
   }
-  async createChallenge({ toId, at, format, note, share = false }) {
-    const row = check(await this.sb.from('challenges').insert({ from_id: this.uid(), to_id: toId, at, format, note, share_from: !!share }).select('id').single());
+  async createChallenge({ toId, at, format, note, share = false, courtId = null }) {
+    const row = check(await this.sb.from('challenges').insert({ from_id: this.uid(), to_id: toId, at, format, note, share_from: !!share, court_id: courtId || null }).select('id').single());
     this.notify('challenge', row?.id);
   }
   async answerChallenge(id, status, share = false) {
@@ -606,15 +613,42 @@ export class SupabaseStore {
   async hideComment(newsId, cid) { check(await this.sb.from('news_comments').delete().eq('id', cid)); }
 
   // ---------- coach requests (login screen → admin) ----------
-  async coachRequest({ firstName, lastName, phone, experience, about, termsVer, region }) {
-    const { error } = await this.sb.from('coach_requests').insert({ first_name: firstName, last_name: lastName, phone, experience: experience || null, about: about || '', terms_ver: termsVer || '', region: region || '' });
+  async coachRequest({ firstName, lastName, phone, experience, about, termsVer, region, docs = [] }) {
+    // Document photos go to a private folder: only the administrator can open them
+    const docPaths = [];
+    for (const f of docs) {
+      const path = `req/${crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2)}.jpg`;
+      check(await this.sb.storage.from('coach-docs').upload(path, f, { contentType: 'image/jpeg' }));
+      docPaths.push(path);
+    }
+    const { error } = await this.sb.from('coach_requests').insert({ first_name: firstName, last_name: lastName, phone, experience: experience || null, about: about || '', terms_ver: termsVer || '', region: region || '', doc_paths: docPaths });
     if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'Заявка с этим номером уже отправлена — администратор свяжется с вами' : error.message);
   }
   async coachRequests() {
     return check(await this.sb.from('coach_requests').select('*').order('created_at', { ascending: false }).limit(100)).map((r) => ({
-      id: r.id, firstName: r.first_name, lastName: r.last_name, phone: r.phone, experience: r.experience, about: r.about, region: r.region || '', status: r.status, createdAt: r.created_at }));
+      id: r.id, firstName: r.first_name, lastName: r.last_name, phone: r.phone, experience: r.experience, about: r.about, region: r.region || '', docs: r.doc_paths || [], status: r.status, createdAt: r.created_at }));
   }
-  async resolveCoachRequest(id, approve) { check(await this.sb.rpc('resolve_coach_request', { p_id: id, p_approve: !!approve })); }
+  async resolveCoachRequest(id, approve, region = null) { check(await this.sb.rpc('resolve_coach_request', { p_id: id, p_approve: !!approve, p_region: region || null })); }
+  // Temporary links (10 minutes) to the document photos of a coach request
+  async coachDocUrls(paths) {
+    if (!paths?.length) return [];
+    const data = check(await this.sb.storage.from('coach-docs').createSignedUrls(paths, 600));
+    return data.map((d) => d.signedUrl).filter(Boolean);
+  }
+  async setCoach(userId, { region, pro }) { check(await this.sb.rpc('set_coach', { p_user: userId, p_region: region || '', p_pro: pro ?? null })); }
+
+  // ---------- courts ----------
+  async courts(region) {
+    let q = this.sb.from('courts').select('id,region,city,name,address,lat,lng,courts_count,surface,indoor,lights,phone,price,note,checked,active');
+    if (region) q = q.eq('region', region);
+    if (this.meCache?.role !== 'admin') q = q.eq('active', true);
+    return check(await q.order('city').order('name').limit(1000)).map(toCourt);
+  }
+  async saveCourt(c) {
+    const row = fromCourt(c);
+    if (c.id) check(await this.sb.from('courts').update(row).eq('id', c.id));
+    else check(await this.sb.from('courts').insert(row));
+  }
 
   // ---------- admin ----------
   async inviteCoach({ phone, firstName, lastName }) { check(await this.sb.rpc('invite_coach', { p_phone: phone, p_first: firstName, p_last: lastName })); }

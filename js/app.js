@@ -1,5 +1,6 @@
 import { DemoStore } from './store-demo.js';
 import { SupabaseStore } from './store-supabase.js';
+import * as C from './courts.js';
 import { L, icon, setLang, getLang, toast, profileDone, newerVersion, updateApp } from './ui.js';
 import * as V from './views.js';
 
@@ -21,6 +22,7 @@ const routes = [
   [/^#\/coach\/([\w-]+)$/, V.coach, { tab: 'search' }],
   [/^#\/tournaments$/, V.tournaments, { tab: 'home' }],
   [/^#\/tournament\/([\w-]+)$/, V.tournament, { tab: 'home' }],
+  [/^#\/courts$/, C.courtsView, { tab: 'home' }],
   [/^#\/news$/, V.news, { tab: 'home' }],
   [/^#\/news\/([\w-]+)$/, V.newsItem, { tab: 'home' }],
   [/^#\/admin(?:\/(\w+))?(?:\/([\w-]+))?$/, V.admin, { tab: 'admin', admin: true }],
@@ -188,6 +190,17 @@ try { screen.orientation?.lock?.('portrait').catch(() => {}); } catch { /* not s
   catch (e) { app.innerHTML = `<div class="wrap"><div class="card">${L('Не удалось подключиться к серверу', 'Serverga ulanib bo‘lmadi')}: ${e.message}</div></div>`; return; }
   if (!location.hash) location.hash = store.me() ? '#/home' : '#/login';
   render();
+  // Old profiles kept the photo inside the database: move it to file storage once (the profile list becomes light)
+  const me = store.me();
+  if (me?.photo?.startsWith('data:') && store.uploadPhoto) {
+    setTimeout(async () => {
+      try {
+        const blob = await (await fetch(me.photo)).blob();
+        const url = await store.uploadPhoto(new File([blob], 'p.jpg', { type: 'image/jpeg' }));
+        await store.saveProfile({ photo: url });
+      } catch { /* next start */ }
+    }, 3000);
+  }
 })();
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
