@@ -1,5 +1,5 @@
 // Ace Tennis service worker: app shell works offline and opens instantly; data always goes to the network.
-const CACHE = 'ace-v16';
+const CACHE = 'ace-v17';
 const EXT = 'ace-ext-v1'; // supabase library from jsdelivr and fonts: saved once, then opened from the phone
 const SHELL = [
   './', './index.html', './css/app.css', './js/config.js', './js/app.js', './js/ui.js', './js/views.js', './js/terms.js', './js/regions.js', './js/courts.js', './js/share.js',
