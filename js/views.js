@@ -1414,7 +1414,7 @@ export const admin = {
     const tabs = [['overview', L('Обзор', 'Umumiy')], ['support', L('Обращения', 'Murojaatlar'), s0.support], ['users', L('Люди', 'Odamlar')],
       ['complaints', L('Жалобы', 'Shikoyatlar'), s0.openComplaints + s0.disputes], ['coaches', L('Тренеры', 'Murabbiylar'), s0.coachRequests],
       ['courts', L('Корты', 'Kortlar')], ['news', L('Новости', 'Yangiliklar')]];
-    const head = `<div class="hero"><div class="topbar"><span class="brand">${logo(30)} ${L('Админ', 'Admin')}</span><span style="display:flex;gap:8px;align-items:center">${store.accounts ? `<button type="button" data-accs style="border:0;border-radius:999px;padding:8px 14px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;cursor:pointer">⇄ ${L('Аккаунт', 'Akkaunt')}</button>` : ''}<button class="iconbtn" data-logout aria-label="${L('Выйти', 'Chiqish')}">${icon.close}</button></span></div></div>
+    const head = `<div class="hero"><div class="topbar"><span class="brand">${logo(30)} ${L('Админ', 'Admin')}</span><span style="display:flex;gap:8px;align-items:center">${store.accounts ? `<button type="button" data-accs style="border:0;border-radius:999px;padding:8px 14px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;cursor:pointer">⇄ ${L('Аккаунт', 'Akkaunt')}</button>` : ''}<a class="iconbtn" href="#/admin/me" aria-label="${L('Профиль', 'Profil')}" style="position:relative;${tab === 'me' ? 'background:var(--ball);color:var(--court)' : ''}">${icon.user}${window.ACE_UPDATE ? '<span style="position:absolute;top:2px;right:2px;width:12px;height:12px;border-radius:50%;background:var(--ball);border:2px solid var(--court)"></span>' : ''}</a></span></div></div>
       <div class="wrap" style="padding-bottom:0"><div class="chips scroll">${tabs.map(([k, l, n]) => `<a class="chip ${tab === k ? 'on' : ''}" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;${tab === k ? '' : 'color:inherit'}" href="#/admin/${k}">${l}${n ? `<span class="tag bad" style="padding:1px 7px">${n}</span>` : ''}</a>`).join('')}</div></div>`;
     let body = '';
     if (tab === 'overview') {
@@ -1432,6 +1432,20 @@ export const admin = {
         </div>
         <div class="card"><h2 class="h">${L('Люди по областям', 'Viloyatlar bo‘yicha')}</h2>
           ${byR.map(([r, n]) => `<button class="kv" data-goregion="${r === '-' ? '' : r}" style="width:100%;background:none;border:0;border-top:1px solid #E8EDE3;font:inherit;color:inherit;cursor:pointer;min-height:44px"><span>${r === '-' ? L('Анкета не заполнена', 'Anketa to‘ldirilmagan') : esc(regionShort(r))}</span><span class="strong">${fmtNum(n)} →</span></button>`).join('') || `<div class="muted">${L('Пока никого нет', 'Hozircha hech kim yo‘q')}</div>`}</div>`;
+    }
+    if (tab === 'me') {
+      const acc = (store.accounts ? store.accounts() : []).find((a) => a.current);
+      const me = store.me() || {};
+      body = `${window.ACE_UPDATE ? `<div class="card hl"><div class="strong">${L('Вышло обновление приложения', 'Ilovaning yangi versiyasi chiqdi')} · ${esc(window.ACE_UPDATE)}</div><button class="btn ball block mt" data-update>${L('Обновить сейчас', 'Hozir yangilash')}</button></div>` : ''}
+        <div class="card"><h2 class="h">${L('Профиль администратора', 'Administrator profili')}</h2>
+        <div class="kv"><span>${L('Имя', 'Ism')}</span><span class="strong">${esc([me.firstName, me.lastName].filter(Boolean).join(' ') || L('Админ', 'Admin'))}</span></div>
+        ${acc?.email ? `<div class="kv"><span>${L('Почта', 'Pochta')}</span><span class="muted">${esc(acc.email)}</span></div>` : ''}
+        <div class="kv"><span>${L('Язык', 'Til')}</span><div class="seg" style="width:180px"><button class="${getLang() === 'ru' ? 'on' : ''}" data-l="ru">RU</button><button class="${getLang() === 'uz' ? 'on' : ''}" data-l="uz">UZ</button></div></div>
+        <div class="kv"><span>${L('Версия приложения', 'Ilova versiyasi')}</span><span class="muted strong">${APP_VERSION}</span></div>
+        ${window.ACE_UPDATE ? '' : `<button class="btn block mt" data-update>${L('Проверить обновление', 'Yangilanishni tekshirish')}</button>`}
+        ${store.accounts ? `<button class="btn ghost block mt" data-accs>${L('Сменить аккаунт', 'Akkauntni almashtirish')}</button>` : ''}
+        <button class="btn ghost block mt" data-terms>${termsTitle()}</button>
+        <button class="btn ghost block mt" data-logout>${L('Выйти', 'Chiqish')}</button></div>`;
     }
     if (tab === 'support') {
       const userId = params[1];
@@ -1529,7 +1543,14 @@ export const admin = {
       } catch (e) { box.innerHTML = `<span class="muted small">${esc(e.message)}</span>`; }
     });
     root.querySelector('[data-logout]')?.addEventListener('click', async () => { await store.signOut(); go('#/login'); });
-    root.querySelector('[data-accs]')?.addEventListener('click', () => accountsSheet(store));
+    root.querySelectorAll('[data-accs]').forEach((b) => b.addEventListener('click', () => accountsSheet(store)));
+    root.querySelectorAll('[data-l]').forEach((b) => b.addEventListener('click', async () => { setLang(b.dataset.l); try { await store.saveProfile({ lang: b.dataset.l }); } catch { /* demo */ } rerender(); }));
+    root.querySelector('[data-terms]')?.addEventListener('click', () => termsSheet());
+    root.querySelector('[data-update]')?.addEventListener('click', (e) => act(e.currentTarget, async () => {
+      const v = await newerVersion();
+      if (!v) { toast(L('У вас последняя версия', 'Sizda oxirgi versiya')); return; }
+      toast(L(`Обновляем до версии ${v}…`, `${v} versiyasiga yangilanmoqda…`)); await updateApp();
+    }));
     root.querySelectorAll('[data-disp]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [id, k] = b.dataset.disp.split(':'); await store.resolveDispute(id, k === '1'); rerender(); })));
     root.querySelectorAll('[data-cmp]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [id, k] = b.dataset.cmp.split(':'); await store.resolveComplaint(id, k === '1'); rerender(); })));
     root.querySelectorAll('[data-ent]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [t, u, k] = b.dataset.ent.split(':'); await store.approveEntry(t, u, k === '1'); rerender(); })));

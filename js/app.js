@@ -68,7 +68,7 @@ function currentRoute() {
 
 // A newer version on the server → a thin banner "update" at the top (checked at start and every 30 min)
 let updateReady = null;
-const checkUpdate = async () => { const v = await newerVersion(); if (v && v !== updateReady) { updateReady = v; window.dispatchEvent(new Event('ace:data')); } };
+const checkUpdate = async () => { const v = await newerVersion(); if (v && v !== updateReady) { updateReady = v; window.ACE_UPDATE = v; window.dispatchEvent(new Event('ace:data')); } };
 setTimeout(checkUpdate, 4000); setInterval(checkUpdate, 30 * 60e3);
 
 let renderSeq = 0;
@@ -111,7 +111,8 @@ export async function render(keepScroll = false) {
   if (seq !== renderSeq) return;
   loading(false);
   const y = window.scrollY;
-  const upd = updateReady && me ? `<div class="demo-banner" style="background:var(--ball);color:var(--court)">${L('Вышло обновление приложения', 'Ilovaning yangi versiyasi chiqdi')} · <button data-do-update style="all:unset;text-decoration:underline;cursor:pointer;font-weight:800">${L('обновить', 'yangilash')}</button></div>` : '';
+  // the administrator sees the update in his profile (icon top right), not as a strip over the screen
+  const upd = updateReady && me && me.role !== 'admin' ? `<div class="demo-banner" style="background:var(--ball);color:var(--court)">${L('Вышло обновление приложения', 'Ilovaning yangi versiyasi chiqdi')} · <button data-do-update style="all:unset;text-decoration:underline;cursor:pointer;font-weight:800">${L('обновить', 'yangilash')}</button></div>` : '';
   const banner = upd + (store.mode === 'demo' && me ? `<div class="demo-banner">${L('Демо-режим: тестовые данные', 'Demo rejim: sinov ma’lumotlari')} · <button class="linkbtn" data-reset style="all:unset;text-decoration:underline;cursor:pointer">${L('сбросить', 'qayta tiklash')}</button></div>` : '');
   app.innerHTML = `${banner}<div class="screen">${html}</div>${tab && me ? nav(tab) : ''}`;
   app.querySelector('[data-do-update]')?.addEventListener('click', () => { toast(L('Обновляем…', 'Yangilanmoqda…')); updateApp(); });
