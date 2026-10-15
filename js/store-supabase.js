@@ -262,7 +262,9 @@ export class SupabaseStore {
       if (this.meCache) this.meCache.phone = phone.data || '';
       this.usersAt = Date.now();
       this.saveSnap();
-      if (this.meCache) accUpsert({ id: myId, email: s.session.user.email || '', name: [this.meCache.firstName, this.meCache.lastName].filter(Boolean).join(' '), role: this.meCache.role }, s.session);
+      // switching accounts is only for the administrator (and the accounts he keeps next to his own on this phone)
+      if (this.meCache && !(this.meCache.role === 'admin' || accList().some((a) => a.role === 'admin'))) accWrite([]);
+      else if (this.meCache) accUpsert({ id: myId, email: s.session.user.email || '', name: [this.meCache.firstName, this.meCache.lastName].filter(Boolean).join(' '), role: this.meCache.role }, s.session);
     })();
     const p = run.finally(() => { if (this.refreshing === p) this.refreshing = null; });
     this.refreshing = p;
@@ -344,7 +346,7 @@ export class SupabaseStore {
   async signOut() { const id = this.uid(); snapClear(); await this.sb.auth.signOut(); accRemove(id); this.meCache = null; this.setUsers([]); this.syncAt = null; this.fullAt = 0; this.invalidate(); }
 
   // ---------- several accounts on one phone (e.g. admin + own player account) ----------
-  accounts() { return accList().map(({ id, email, name, role }) => ({ id, email, name, role, current: id === this.uid() })); }
+  accounts() { if (!accList().some((a) => a.role === 'admin')) return []; return accList().map(({ id, email, name, role }) => ({ id, email, name, role, current: id === this.uid() })); }
   async rememberAccount() {
     await this.ready;
     const { data } = await this.sb.auth.getSession();

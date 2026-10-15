@@ -967,7 +967,7 @@ export const profile = {
         <button class="btn block mt" data-update>${L('Проверить обновление', 'Yangilanishni tekshirish')}</button>
         <a class="btn ghost block mt" href="#/support">${L('Написать администрации', 'Ma’muriyatga yozish')}${supUnread ? ` <span class="tag bad">${supUnread}</span>` : ''}</a>
         <button class="btn ghost block mt" data-terms>${termsTitle()}</button>
-        ${store.accounts ? `<button class="btn ghost block mt" data-accs>${L('Сменить аккаунт', 'Akkauntni almashtirish')}</button>` : ''}
+        ${store.accounts && (me.role === 'admin' || store.accounts().length) ? `<button class="btn ghost block mt" data-accs>${L('Сменить аккаунт', 'Akkauntni almashtirish')}</button>` : ''}
         <button class="btn ghost block mt" data-logout>${L('Выйти', 'Chiqish')}</button>
         ${me.role !== 'admin' && store.deleteAccount ? `<button class="btn ghost block mt" data-delacc style="color:var(--bad);border-color:transparent">${L('Удалить аккаунт', 'Akkauntni o‘chirish')}</button>` : ''}</div>` : ''}
     </div>`;
