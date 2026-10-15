@@ -1,0 +1,35 @@
+{
+  "appId": "uz.acetennis.app",
+  "appName": "Ace Tennis",
+  "webDir": "www",
+  "server": {
+    "url": "https://ace-tennis.uz",
+    "allowNavigation": [
+      "ace-tennis.uz",
+      "*.supabase.co"
+    ]
+  },
+  "ios": {
+    "contentInset": "never",
+    "appendUserAgent": "AceTennisApp",
+    "backgroundColor": "#0E3B2C"
+  },
+  "android": {
+    "appendUserAgent": "AceTennisApp",
+    "backgroundColor": "#0E3B2C"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 600,
+      "backgroundColor": "#0E3B2C",
+      "showSpinner": false
+    },
+    "PushNotifications": {
+      "presentationOptions": [
+        "badge",
+        "sound",
+        "alert"
+      ]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "ace-tennis-native",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Ace Tennis — iOS / Android shell around https://ace-tennis.uz",
+  "scripts": {
+    "ios": "npx cap add ios && npx capacitor-assets generate --ios && node scripts/ios-plist.mjs && npx cap sync ios"
+  }
+}
