@@ -8,9 +8,17 @@ const contact = () => {
   return c ? L(` по почте ${c}`, ` ${c} pochtasi orqali`) : '';
 };
 
+// Who runs the service: company name, address, e-mail (from config.js)
+export function operatorHtml() {
+  const c = window.ACE_CONFIG || {};
+  if (!c.company) return '';
+  return `<div class="small" style="line-height:1.5">${esc(L('Сервис Ace Tennis работает от имени', 'Ace Tennis xizmati operatori'))}: <b>${esc(c.company)}</b><br>${esc(L('Адрес', 'Manzil'))}: ${esc(c.companyAddress || '')}${c.contactEmail ? `<br>${esc(L('Почта', 'Pochta'))}: <a href="mailto:${esc(c.contactEmail)}">${esc(c.contactEmail)}</a>` : ''}</div>`;
+}
+const company = () => { const c = (window.ACE_CONFIG || {}).company; return c ? ` ${c}` : ''; };
+
 const RU = () => [
   ['1. Что это за соглашение', [
-    'Это публичная оферта администрации сервиса Ace Tennis (сайт и приложение ace-tennis.uz). Ставя отметку «Принимаю» при заполнении анкеты или заявки тренера, вы полностью принимаете эти условия (статьи 367 и 369 Гражданского кодекса Республики Узбекистан). Если вы не согласны — не пользуйтесь сервисом.',
+    `Это публичная оферта администрации сервиса Ace Tennis (сайт и приложение ace-tennis.uz)${company() ? `, оператор —${company()}` : ''}. Ставя отметку «Принимаю» при заполнении анкеты или заявки тренера, вы полностью принимаете эти условия (статьи 367 и 369 Гражданского кодекса Республики Узбекистан). Если вы не согласны — не пользуйтесь сервисом.`,
     'Ace Tennis — бесплатная информационная платформа для любителей тенниса и тренеров: профиль, поиск соперников, учёт матчей и тренировок, рейтинг, турниры и новости.',
   ]],
   ['2. Регистрация и возраст', [
@@ -59,7 +67,7 @@ const RU = () => [
 
 const UZ = () => [
   ['1. Bu qanday kelishuv', [
-    'Bu Ace Tennis xizmati (ace-tennis.uz sayti va ilovasi) ma’muriyatining ommaviy ofertasi. Anketa yoki murabbiy arizasini to‘ldirishda «Qabul qilaman» belgisini qo‘yib, siz ushbu shartlarni to‘liq qabul qilasiz (O‘zbekiston Respublikasi Fuqarolik kodeksining 367 va 369-moddalari). Rozi bo‘lmasangiz, xizmatdan foydalanmang.',
+    `Bu Ace Tennis xizmati (ace-tennis.uz sayti va ilovasi) ma’muriyatining ommaviy ofertasi${company() ? `, operator —${company()}` : ''}. Anketa yoki murabbiy arizasini to‘ldirishda «Qabul qilaman» belgisini qo‘yib, siz ushbu shartlarni to‘liq qabul qilasiz (O‘zbekiston Respublikasi Fuqarolik kodeksining 367 va 369-moddalari). Rozi bo‘lmasangiz, xizmatdan foydalanmang.`,
     'Ace Tennis — tennis havaskorlari va murabbiylar uchun bepul axborot platformasi: profil, raqib qidirish, o‘yin va mashg‘ulotlar hisobi, reyting, turnirlar va yangiliklar.',
   ]],
   ['2. Ro‘yxatdan o‘tish va yosh', [
@@ -111,5 +119,6 @@ export const termsTitle = () => L('Пользовательское соглаш
 export function termsHtml() {
   const parts = getLang() === 'uz' ? UZ() : RU();
   return `<div class="muted small">${L('Редакция от', 'Tahrir sanasi')} ${TERMS_VERSION.split('-').reverse().join('.')}</div>
-    ${parts.map(([h, ps]) => `<h3 class="strong" style="margin:16px 0 6px">${esc(h)}</h3>${ps.map((p) => `<p style="margin:0 0 8px;line-height:1.5">${esc(p)}</p>`).join('')}`).join('')}`;
+    ${parts.map(([h, ps]) => `<h3 class="strong" style="margin:16px 0 6px">${esc(h)}</h3>${ps.map((p) => `<p style="margin:0 0 8px;line-height:1.5">${esc(p)}</p>`).join('')}`).join('')}
+    <div class="mt" style="border-top:1px solid var(--line, #e5e7eb);padding-top:12px">${operatorHtml()}</div>`;
 }

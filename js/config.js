@@ -13,4 +13,7 @@ window.ACE_CONFIG = {
   smsLogin: false,
   // Contact e-mail shown in the user agreement (оферта)
   contactEmail: 'dadabaev.azizbek@gmail.com',
+  // Company that runs the service (shown on the login page, in the agreement and on the deletion page)
+  company: '"EAST TEAM ADS" MCHJ',
+  companyAddress: "Boburshox ko'chasi 7a-uy, Lola MFY, Namangan, 160100, O'zbekiston",
 };

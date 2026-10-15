@@ -2,7 +2,7 @@ import {
   L, esc, icon, logo, avatar, fullName, profileDone, fmtPhone, shortName, formBadges, fmtDate, hoursLeft, fmtNum, comma, toast, sheet, readSets, setLang, getLang,
   yearsText, appContext, installHint, bindInstallHint, normPhone, EXPERIENCE, TERMS_VERSION, APP_VERSION, newerVersion, updateApp,
 } from './ui.js';
-import { termsHtml, termsTitle } from './terms.js';
+import { termsHtml, termsTitle, operatorHtml } from './terms.js';
 import { REGIONS, region, regionShort, districtName, regionOf } from './regions.js';
 import { courtLine, courtSelect, EQUIPMENT, equipmentName, adminCourts } from './courts.js';
 import { shareSheet } from './share.js';
@@ -101,7 +101,8 @@ export const deleteAccountPage = {
         <div class="small mt">${deleteInfo()}</div>
         ${me && me.role !== 'admin' ? `<button class="btn danger block mt" data-delacc>${L('Удалить мой аккаунт', 'Akkauntimni o‘chirish')}</button>`
           : me ? '' : `<a class="btn ball block mt" href="#/login">${L('Войти, чтобы удалить аккаунт', 'O‘chirish uchun kirish')}</a>`}
-        <div class="muted small mt">${L('Нет доступа к аккаунту? Напишите на', 'Akkauntga kira olmayapsizmi? Yozing:')} ${esc((window.ACE_CONFIG || {}).contactEmail || '')}</div></div></div>`;
+        <div class="muted small mt">${L('Нет доступа к аккаунту? Напишите на', 'Akkauntga kira olmayapsizmi? Yozing:')} ${esc((window.ACE_CONFIG || {}).contactEmail || '')}</div>
+        <div class="muted mt">${operatorHtml()}</div></div></div>`;
   },
   mount(root, _, store) { root.querySelector('[data-delacc]')?.addEventListener('click', () => deleteAccountSheet(store)); },
 };
@@ -166,6 +167,7 @@ export const login = {
           <button class="btn ghost sm" data-as="admin">${L('Админ', 'Admin')}</button>
         </div></div>` : ''}
       <div class="center"><button class="chip" data-lang>${getLang() === 'ru' ? 'O‘zbekcha' : 'Русский'}</button></div>
+      <div class="center muted small mt" style="line-height:1.6">${esc((window.ACE_CONFIG || {}).company || '')}${(window.ACE_CONFIG || {}).company ? ' · ' : ''}<a href="#/terms" style="color:inherit">${termsTitle()}</a> · <a href="#/delete-account" style="color:inherit">${L('Удаление аккаунта', 'Akkauntni o‘chirish')}</a></div>
     </div>`;
   },
   mount(root, _, store) {
