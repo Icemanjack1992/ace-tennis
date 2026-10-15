@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "uz.acetennis.app",
+        "sha256_cert_fingerprints": ["00:21:75:88:E8:4D:60:75:BB:36:33:17:4E:2B:6F:53:BA:11:BF:66:EE:B8:B2:07:F5:FC:26:B3:06:EA:7B:BC"]
+      }
+    }]
