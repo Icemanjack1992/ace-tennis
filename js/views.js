@@ -65,6 +65,23 @@ export function termsSheet() {
   sheet(`<h2 class="h">${termsTitle()}</h2><div class="small">${termsHtml()}</div>
     <button class="btn ball block mt" data-close>${L('Закрыть', 'Yopish')}</button>`);
 }
+// Several accounts on one phone (e.g. the administrator also plays): switch without a password
+const roleName = (r) => (r === 'admin' ? L('Админ', 'Admin') : r === 'coach' ? L('Тренер', 'Murabbiy') : L('Игрок', 'O‘yinchi'));
+const accRow = (a) => `<button type="button" class="btn ${a.current ? '' : 'ghost'} block mt" data-acc="${esc(a.id)}" ${a.current ? 'disabled' : ''} style="height:auto;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;text-align:left;gap:10px">
+  <span><span class="strong">${esc(a.name || a.email)}</span><br><span class="small" style="opacity:.75">${esc(a.email)} · ${roleName(a.role)}</span></span>${a.current ? `<span class="tag">${L('сейчас', 'hozir')}</span>` : ''}</button>`;
+const afterSwitch = (u) => { location.hash = u?.role === 'admin' ? '#/admin' : '#/home'; location.reload(); };
+const bindAccRows = (root, store, done) => root.querySelectorAll('[data-acc]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const u = await store.switchAccount(b.dataset.acc); done?.(); afterSwitch(u); })));
+export function accountsSheet(store) {
+  sheet(`<h2 class="h">${L('Аккаунты', 'Akkauntlar')}</h2>
+    <div class="muted small">${L('Входы сохраняются только на этом телефоне. Переключаться можно без пароля.', 'Kirishlar faqat shu telefonda saqlanadi. Parolsiz almashtirish mumkin.')}</div>
+    ${store.accounts().map(accRow).join('')}
+    <button type="button" class="btn ball block mt" data-accadd>+ ${L('Добавить аккаунт', 'Akkaunt qo‘shish')}</button>
+    <div class="muted small mt">${L('Для второго аккаунта можно взять ту же почту Gmail с «+»: например name+player@gmail.com — письма придут в ваш обычный ящик.', 'Ikkinchi akkaunt uchun o‘sha Gmail pochtasini «+» bilan olish mumkin: masalan name+player@gmail.com — xatlar odatiy qutingizga keladi.')}</div>
+    <button type="button" class="btn ghost block mt" data-close>${L('Закрыть', 'Yopish')}</button>`, (el, close) => {
+    bindAccRows(el, store, close);
+    el.querySelector('[data-accadd]').addEventListener('click', (e) => act(e.currentTarget, async () => { await store.addAccount(); close(); location.hash = '#/login'; location.reload(); }));
+  });
+}
 // Public page with the agreement (also the privacy-policy link for app stores): ace-tennis.uz/#/terms
 export const termsPage = {
   render(_, store) {
@@ -117,11 +134,13 @@ export const login = {
     const tg = store.mode === 'live' && cfg.telegramBot && store.telegramNonce;
     const mail = store.mode === 'live' && cfg.emailLogin;
     const showSms = store.mode === 'demo' || cfg.smsLogin || (!tg && !mail);
+    const saved = store.accounts ? store.accounts() : [];
     return `<div class="hero" style="min-height:48vh;display:flex;flex-direction:column;justify-content:flex-end;gap:14px">
       <div class="brand" style="font-size:30px">${logo(56)} Ace Tennis</div>
       <div class="sub" style="font-size:16px">${L('Сообщество любителей тенниса Узбекистана: рейтинг, соперники, тренеры, турниры', 'O‘zbekiston tennis havaskorlari jamoasi: reyting, raqiblar, murabbiylar, turnirlar')}</div>
     </div>
     <div class="wrap">
+      ${saved.length ? `<div class="card"><div class="strong">${L('Сохранённые аккаунты', 'Saqlangan akkauntlar')}</div><div class="muted small">${L('Нажмите, чтобы войти без пароля', 'Parolsiz kirish uchun bosing')}</div>${saved.map(accRow).join('')}</div>` : ''}
       ${mail ? `<div class="card">
         <div class="seg" id="mode"><button type="button" class="on" data-m="in">${L('Вход', 'Kirish')}</button><button type="button" data-m="up">${L('Регистрация', 'Ro‘yxatdan o‘tish')}</button></div>
         <form id="mailForm">
@@ -171,6 +190,7 @@ export const login = {
     </div>`;
   },
   mount(root, _, store) {
+    bindAccRows(root, store);
     const cfg = window.ACE_CONFIG || {};
     let phone = '';
     // ---- e-mail + password ----
@@ -947,6 +967,7 @@ export const profile = {
         <button class="btn block mt" data-update>${L('Проверить обновление', 'Yangilanishni tekshirish')}</button>
         <a class="btn ghost block mt" href="#/support">${L('Написать администрации', 'Ma’muriyatga yozish')}${supUnread ? ` <span class="tag bad">${supUnread}</span>` : ''}</a>
         <button class="btn ghost block mt" data-terms>${termsTitle()}</button>
+        ${store.accounts ? `<button class="btn ghost block mt" data-accs>${L('Сменить аккаунт', 'Akkauntni almashtirish')}</button>` : ''}
         <button class="btn ghost block mt" data-logout>${L('Выйти', 'Chiqish')}</button>
         ${me.role !== 'admin' && store.deleteAccount ? `<button class="btn ghost block mt" data-delacc style="color:var(--bad);border-color:transparent">${L('Удалить аккаунт', 'Akkauntni o‘chirish')}</button>` : ''}</div>` : ''}
     </div>`;
@@ -979,6 +1000,7 @@ export const profile = {
     root.querySelector('[data-unban]')?.addEventListener('click', (e) => act(e.currentTarget, async () => { await unban(store, id); rerender(); }));
     root.querySelectorAll('[data-l]').forEach((b) => b.addEventListener('click', async () => { setLang(b.dataset.l); try { await store.saveProfile({ lang: b.dataset.l }); } catch { /* demo */ } rerender(); }));
     root.querySelector('[data-logout]')?.addEventListener('click', async () => { await store.signOut(); go('#/login'); });
+    root.querySelector('[data-accs]')?.addEventListener('click', () => accountsSheet(store));
   },
 };
 
@@ -1392,7 +1414,7 @@ export const admin = {
     const tabs = [['overview', L('Обзор', 'Umumiy')], ['support', L('Обращения', 'Murojaatlar'), s0.support], ['users', L('Люди', 'Odamlar')],
       ['complaints', L('Жалобы', 'Shikoyatlar'), s0.openComplaints + s0.disputes], ['coaches', L('Тренеры', 'Murabbiylar'), s0.coachRequests],
       ['courts', L('Корты', 'Kortlar')], ['news', L('Новости', 'Yangiliklar')]];
-    const head = `<div class="hero"><div class="topbar"><span class="brand">${logo(30)} ${L('Админ', 'Admin')}</span><button class="iconbtn" data-logout aria-label="${L('Выйти', 'Chiqish')}">${icon.close}</button></div></div>
+    const head = `<div class="hero"><div class="topbar"><span class="brand">${logo(30)} ${L('Админ', 'Admin')}</span><span style="display:flex;gap:8px;align-items:center">${store.accounts ? `<button type="button" data-accs style="border:0;border-radius:999px;padding:8px 14px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;cursor:pointer">⇄ ${L('Аккаунт', 'Akkaunt')}</button>` : ''}<button class="iconbtn" data-logout aria-label="${L('Выйти', 'Chiqish')}">${icon.close}</button></span></div></div>
       <div class="wrap" style="padding-bottom:0"><div class="chips scroll">${tabs.map(([k, l, n]) => `<a class="chip ${tab === k ? 'on' : ''}" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;${tab === k ? '' : 'color:inherit'}" href="#/admin/${k}">${l}${n ? `<span class="tag bad" style="padding:1px 7px">${n}</span>` : ''}</a>`).join('')}</div></div>`;
     let body = '';
     if (tab === 'overview') {
@@ -1507,6 +1529,7 @@ export const admin = {
       } catch (e) { box.innerHTML = `<span class="muted small">${esc(e.message)}</span>`; }
     });
     root.querySelector('[data-logout]')?.addEventListener('click', async () => { await store.signOut(); go('#/login'); });
+    root.querySelector('[data-accs]')?.addEventListener('click', () => accountsSheet(store));
     root.querySelectorAll('[data-disp]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [id, k] = b.dataset.disp.split(':'); await store.resolveDispute(id, k === '1'); rerender(); })));
     root.querySelectorAll('[data-cmp]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [id, k] = b.dataset.cmp.split(':'); await store.resolveComplaint(id, k === '1'); rerender(); })));
     root.querySelectorAll('[data-ent]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [t, u, k] = b.dataset.ent.split(':'); await store.approveEntry(t, u, k === '1'); rerender(); })));

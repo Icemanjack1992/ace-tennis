@@ -1,6 +1,7 @@
 // Real store: Supabase (PostgreSQL + phone auth). Same interface as DemoStore.
 // Heavy rules (rating, points, bracket, sanctions) run inside the database — see supabase/schema.sql.
 import { fairplay, FAIRPLAY_MIN_FOR_TOURNAMENT } from './rating.js';
+import { L } from './ui.js';
 
 const toUser = (r) => r && ({
   id: r.id, role: r.role, firstName: r.first_name, lastName: r.last_name, photo: r.photo_url, gender: r.gender,
@@ -86,15 +87,32 @@ const SNAP_KEY = 'ace_snap_v1';
 const snapRead = () => { try { return JSON.parse(localStorage.getItem(SNAP_KEY) || 'null'); } catch { return null; } };
 const snapClear = () => { try { localStorage.removeItem(SNAP_KEY); } catch { /* ignore */ } };
 const LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-const SYNC = new Set(['constructor', 'init', 'refresh', 'memo', 'invalidate', 'me', 'user', 'uid', 'pendingPeek', 'telegramNonce',
+const SYNC = new Set(['constructor', 'accounts', 'init', 'refresh', 'memo', 'invalidate', 'me', 'user', 'uid', 'pendingPeek', 'telegramNonce',
   'telegramPending', 'telegramClicked', 'notify', 'changed', 'saveSnap', 'listUsers', 'newsItem', 'setUsers', 'addUsers', 'myRegion']);
+
+// Saved logins for switching accounts (only on this phone): [{id, email, name, role, at, rt}]
+const ACC_KEY = 'ace_accounts';
+const accList = () => { try { return JSON.parse(localStorage.getItem(ACC_KEY) || '[]'); } catch { return []; } };
+const accWrite = (l) => { try { localStorage.setItem(ACC_KEY, JSON.stringify(l)); } catch { /* storage is off */ } };
+const accUpsert = (info, ses) => { const l = accList().filter((a) => a.id !== info.id); l.push({ ...info, at: ses.access_token, rt: ses.refresh_token }); accWrite(l); };
+const accRemove = (id) => accWrite(accList().filter((a) => a.id !== id));
+function accSaveTokens(ses, me) {
+  const l = accList(); const a = l.find((x) => x.id === ses.user?.id); if (!a) return;
+  a.at = ses.access_token; a.rt = ses.refresh_token;
+  if (me) { a.name = [me.firstName, me.lastName].filter(Boolean).join(' '); a.role = me.role; }
+  accWrite(l);
+}
 
 export class SupabaseStore {
   constructor(url, key) {
     this.mode = 'live'; this.url = url; this.key = key; this.users = []; this.byId = new Map(); this.meCache = null;
     this.usersAt = 0; this.syncAt = null; this.fullAt = 0; this.syncRegion = null; this.cache = new Map(); this.pendingLast = null;
     // Load the Supabase library right away, in parallel with everything else
-    this.ready = import(LIB).then(({ createClient }) => { this.sb = createClient(url, key, { auth: { persistSession: true } }); });
+    this.ready = import(LIB).then(({ createClient }) => {
+      this.sb = createClient(url, key, { auth: { persistSession: true } });
+      // keep the saved copy of this account's login fresh (the token changes about once an hour)
+      this.sb.auth.onAuthStateChange((ev, ses) => { if (ses && (ev === 'TOKEN_REFRESHED' || ev === 'SIGNED_IN')) accSaveTokens(ses); });
+    });
     // Every request waits for the library (only the very first moment after start)
     for (const name of Object.getOwnPropertyNames(SupabaseStore.prototype)) {
       if (SYNC.has(name)) continue;
@@ -244,6 +262,7 @@ export class SupabaseStore {
       if (this.meCache) this.meCache.phone = phone.data || '';
       this.usersAt = Date.now();
       this.saveSnap();
+      if (this.meCache) accUpsert({ id: myId, email: s.session.user.email || '', name: [this.meCache.firstName, this.meCache.lastName].filter(Boolean).join(' '), role: this.meCache.role }, s.session);
     })();
     const p = run.finally(() => { if (this.refreshing === p) this.refreshing = null; });
     this.refreshing = p;
@@ -318,10 +337,40 @@ export class SupabaseStore {
       if (files.length) await this.sb.storage.from('photos').remove(files.map((f) => `${uid}/${f.name}`));
     } catch { /* photos are optional */ }
     check(await this.sb.rpc('delete_my_account'));
+    accRemove(uid);
     snapClear(); try { await this.sb.auth.signOut({ scope: 'local' }); } catch { /* session is already closed */ }
     this.meCache = null; this.setUsers([]); this.syncAt = null; this.fullAt = 0; this.invalidate();
   }
-  async signOut() { snapClear(); await this.sb.auth.signOut(); this.meCache = null; this.setUsers([]); this.syncAt = null; this.fullAt = 0; this.invalidate(); }
+  async signOut() { const id = this.uid(); snapClear(); await this.sb.auth.signOut(); accRemove(id); this.meCache = null; this.setUsers([]); this.syncAt = null; this.fullAt = 0; this.invalidate(); }
+
+  // ---------- several accounts on one phone (e.g. admin + own player account) ----------
+  accounts() { return accList().map(({ id, email, name, role }) => ({ id, email, name, role, current: id === this.uid() })); }
+  async rememberAccount() {
+    await this.ready;
+    const { data } = await this.sb.auth.getSession();
+    const me = this.meCache;
+    if (!data.session || !me || data.session.user.id !== me.id) return;
+    accUpsert({ id: me.id, email: data.session.user.email || '', name: [me.firstName, me.lastName].filter(Boolean).join(' '), role: me.role }, data.session);
+  }
+  // Switch to a saved account: the current login stays saved, nothing is signed out on the server
+  async switchAccount(id) {
+    await this.rememberAccount();
+    const a = accList().find((x) => x.id === id);
+    if (!a?.rt) throw new Error(L('Войдите в этот аккаунт заново', 'Bu akkauntga qaytadan kiring'));
+    const { data, error } = await this.sb.auth.setSession({ access_token: a.at, refresh_token: a.rt });
+    if (error || !data.session) { accRemove(id); throw new Error(L('Вход в этот аккаунт устарел — войдите заново', 'Bu akkauntga kirish eskirgan — qaytadan kiring')); }
+    snapClear(); this.meCache = null; this.setUsers([]); this.syncAt = null; this.fullAt = 0; this.invalidate();
+    await this.refresh(true);
+    await this.rememberAccount();
+    return this.meCache;
+  }
+  // Add one more account: keep the current login saved and open the login screen (no sign-out on the server)
+  async addAccount() {
+    await this.rememberAccount();
+    if (typeof this.sb.auth._removeSession === 'function') await this.sb.auth._removeSession();
+    else localStorage.removeItem(this.sb.auth.storageKey);
+    snapClear(); this.meCache = null; this.setUsers([]); this.syncAt = null; this.fullAt = 0; this.invalidate();
+  }
 
   // ---------- Telegram bot login ----------
   telegramNonce() {
