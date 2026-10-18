@@ -32,9 +32,19 @@ const toMatch = (r) => ({
 // Courts: the joined court of a match / challenge (name, city, point on the map)
 const MATCH_COLS = '*, court:courts(id,name,city,lat,lng)';
 const toCourt = (r) => ({ id: r.id, region: r.region, city: r.city || '', name: r.name, address: r.address || '', lat: r.lat, lng: r.lng, courts: r.courts_count || 1,
-  surface: r.surface || '', indoor: !!r.indoor, lights: !!r.lights, phone: r.phone || '', price: r.price || '', note: r.note || '', checked: !!r.checked, active: r.active !== false });
+  surface: r.surface || '', indoor: !!r.indoor, lights: !!r.lights, phone: r.phone || '', price: r.price || '', note: r.note || '', checked: !!r.checked, active: r.active !== false,
+  ownerId: r.owner_id || null, verified: !!r.verified, amenities: r.amenities || [], photos: { court: [], shower: [], locker: [], ...(r.photos || {}) },
+  openMin: r.open_min ?? 420, closeMin: r.close_min ?? 1380, priceRules: r.price_rules || [], bookingOn: !!r.booking_on, description: r.description || '',
+  ratingSum: r.rating_sum || 0, ratingCount: r.rating_count || 0 });
+const COURT_COLS = 'id,region,city,name,address,lat,lng,courts_count,surface,indoor,lights,phone,price,note,checked,active,owner_id,verified,amenities,photos,open_min,close_min,price_rules,booking_on,description,rating_sum,rating_count';
+const toBooking = (r) => r && ({ id: r.id, courtId: r.court_id, unit: r.unit, start: r.starts_at, end: r.ends_at, playerId: r.player_id, kind: r.kind, pay: r.pay,
+  status: r.status, price: r.price, playerName: r.player_name || '', playerPhone: r.player_phone || '', note: r.note || '', receipt: r.receipt_path || '',
+  holdUntil: r.hold_until, noshow: !!r.noshow, cancelReason: r.cancel_reason || '', cancelledBy: r.cancelled_by || '', createdAt: r.created_at,
+  playerNoshows: r.player_noshows ?? 0, court: r.court ? toCourt(r.court) : null, reviewed: !!(r.review && r.review.length) });
+const fileId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2));
 const fromCourt = (c) => ({ region: c.region, city: c.city || '', name: c.name, address: c.address || '', lat: c.lat ?? null, lng: c.lng ?? null, courts_count: +c.courts || 1,
-  surface: c.surface || '', indoor: !!c.indoor, lights: !!c.lights, phone: c.phone || '', price: c.price || '', note: c.note || '', checked: c.checked !== false, active: c.active !== false });
+  surface: c.surface || '', indoor: !!c.indoor, lights: !!c.lights, phone: c.phone || '', price: c.price || '', note: c.note || '', checked: c.checked !== false, active: c.active !== false,
+  ...(c.verified !== undefined ? { verified: !!c.verified } : {}) });
 const toTraining = (r) => ({
   id: r.id, playerId: r.player_id, coachId: r.coach_id, hours: Number(r.hours), skills: r.skills, note: r.note,
   playedAt: r.played_at, status: r.status, deadline: r.deadline, createdAt: r.created_at,
@@ -70,12 +80,13 @@ const USERS_TTL = 3 * 60e3;  // profiles of my region: only changes are download
 const FULL_TTL = 24 * 3600e3; // once a day the region list is downloaded in full
 const PENDING_TTL = 30e3;    // "waiting for my confirmation" gate
 const CACHED = ['adminContacts', 'adminUsers', 'supportThreads', 'supportThread', 'supportMine', 'supportUnread', 'coachRequests', 'contacts', 'ranking', 'leaders', 'fairplayRanking', 'achievements', 'suggestOpponent', 'challenges', 'outgoing', 'history',
-  'coachStats', 'canReview', 'courts', 'coachRanking', 'ratedFairplay', 'complaints', 'disputes', 'tournaments', 'tournament', 'news', 'worldNews', 'stats'];
+  'coachStats', 'canReview', 'courts', 'court', 'courtReviews', 'courtRequests', 'myCourt', 'coachRanking', 'ratedFairplay', 'complaints', 'disputes', 'tournaments', 'tournament', 'news', 'worldNews', 'stats'];
 const MUTATIONS = ['saveCourt', 'setCoach', 'supportSend', 'supportReply', 'supportRead', 'resolveCoachRequest', 'sharePhone', 'saveProfile', 'createMatch', 'createTraining', 'confirm', 'dispute', 'cancelOwn', 'createChallenge', 'answerChallenge',
   'addReview', 'rateFairplay', 'complain', 'resolveComplaint', 'resolveDispute', 'setBan', 'applyTournament', 'createTournament',
-  'approveEntry', 'startTournament', 'createTournamentMatch', 'addNews', 'deleteNews', 'addComment', 'hideComment', 'inviteCoach'];
+  'approveEntry', 'startTournament', 'createTournamentMatch', 'addNews', 'deleteNews', 'addComment', 'hideComment', 'inviteCoach',
+  'resolveCourtRequest', 'saveMyCourt', 'bookCourt', 'attachReceipt', 'cancelBooking', 'courtAction', 'courtBlock', 'reviewCourt'];
 // These change ratings / profiles, so the profile list is reloaded too
-const PROFILE_MUTATIONS = new Set(['setCoach', 'resolveCoachRequest', 'saveProfile', 'confirm', 'rateFairplay', 'resolveComplaint', 'resolveDispute', 'setBan', 'createTournamentMatch', 'inviteCoach']);
+const PROFILE_MUTATIONS = new Set(['setCoach', 'resolveCoachRequest', 'resolveCourtRequest', 'saveProfile', 'confirm', 'rateFairplay', 'resolveComplaint', 'resolveDispute', 'setBan', 'createTournamentMatch', 'inviteCoach']);
 // Telegram login nonce lives 15 minutes; localStorage survives iPhone reloading the app while you are in Telegram
 const TG_KEY = 'ace_tg_login';
 const tgRead = () => { try { const v = JSON.parse(localStorage.getItem(TG_KEY) || 'null'); return v && Date.now() - v.t < 15 * 60e3 ? v : null; } catch { return null; } };
@@ -701,7 +712,7 @@ export class SupabaseStore {
 
   // ---------- courts ----------
   async courts(region) {
-    let q = this.sb.from('courts').select('id,region,city,name,address,lat,lng,courts_count,surface,indoor,lights,phone,price,note,checked,active');
+    let q = this.sb.from('courts').select(COURT_COLS);
     if (region) q = q.eq('region', region);
     if (this.meCache?.role !== 'admin') q = q.eq('active', true);
     return check(await q.order('city').order('name').limit(1000)).map(toCourt);
@@ -711,6 +722,106 @@ export class SupabaseStore {
     if (c.id) check(await this.sb.from('courts').update(row).eq('id', c.id));
     else check(await this.sb.from('courts').insert(row));
   }
+
+  // ---------- court accounts and booking (supabase/update-12.sql) ----------
+  async courtRequest({ ownerName, phone, venueName, region, city, address, courtsCount, about, termsVer, docs = [] }) {
+    const docPaths = [];
+    for (const f of docs) {
+      const path = `req/${fileId()}.jpg`;
+      check(await this.sb.storage.from('coach-docs').upload(path, f, { contentType: 'image/jpeg' }));
+      docPaths.push(path);
+    }
+    const { error } = await this.sb.from('court_requests').insert({ owner_name: ownerName, phone, venue_name: venueName, region: region || '', city: city || '',
+      address: address || '', courts_count: Math.max(1, Math.min(60, +courtsCount || 1)), about: about || '', terms_ver: termsVer || '', doc_paths: docPaths });
+    if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'Заявка с этим номером уже отправлена — администратор свяжется с вами' : error.message);
+  }
+  async courtRequests() {
+    return check(await this.sb.from('court_requests').select('*').order('created_at', { ascending: false }).limit(100)).map((r) => ({
+      id: r.id, ownerName: r.owner_name, phone: r.phone, venueName: r.venue_name, region: r.region, city: r.city, address: r.address, courtsCount: r.courts_count,
+      about: r.about, docs: r.doc_paths || [], status: r.status, courtId: r.court_id, createdAt: r.created_at }));
+  }
+  async resolveCourtRequest(id, approve, courtId = null) { return check(await this.sb.rpc('resolve_court_request', { p_id: id, p_approve: !!approve, p_court: courtId || null })); }
+  async court(id) {
+    const r = check(await this.sb.from('courts').select(COURT_COLS).eq('id', id).maybeSingle());
+    return r ? toCourt(r) : null;
+  }
+  async courtReviews(courtId) {
+    const rows = check(await this.sb.from('court_reviews').select('*').eq('court_id', courtId).order('created_at', { ascending: false }).limit(50));
+    await this.ensureUsers(rows.map((r) => r.author_id).filter(Boolean));
+    return rows.map((r) => ({ id: r.id, authorId: r.author_id, stars: r.stars, text: r.text, createdAt: r.created_at }));
+  }
+  async myCourt() {
+    const r = check(await this.sb.from('courts').select(COURT_COLS).eq('owner_id', this.uid()).maybeSingle());
+    if (!r) return null;
+    const card = check(await this.sb.from('court_cards').select('card_number,card_holder').eq('court_id', r.id).maybeSingle());
+    return { ...toCourt(r), cardNumber: card?.card_number || '', cardHolder: card?.card_holder || '' };
+  }
+  async saveMyCourt(c) {
+    check(await this.sb.rpc('save_my_court', { p: {
+      name: c.name, city: c.city, address: c.address, lat: c.lat ?? null, lng: c.lng ?? null, courts_count: c.courts, surface: c.surface || '',
+      indoor: !!c.indoor, lights: !!c.lights, phone: c.phone || '', description: c.description || '', amenities: c.amenities || [], photos: c.photos || {},
+      open_min: c.openMin, close_min: c.closeMin, price_rules: c.priceRules || [], booking_on: !!c.bookingOn, card_number: c.cardNumber || '', card_holder: c.cardHolder || '',
+      price_text: c.priceText || '' } }));
+  }
+  async uploadCourtPhoto(courtId, file) {
+    const path = `${courtId}/${fileId()}.jpg`;
+    check(await this.sb.storage.from('court-photos').upload(path, file, { upsert: false, contentType: file.type || 'image/jpeg' }));
+    return this.sb.storage.from('court-photos').getPublicUrl(path).data.publicUrl;
+  }
+  async courtBusy(courtId, day) {
+    return (check(await this.sb.rpc('court_busy', { p_court: courtId, p_day: day })) || []).map((r) => ({ unit: r.unit, start: r.starts_at, end: r.ends_at }));
+  }
+  async bookCourt({ courtId, unit, start, minutes, pay }) {
+    const id = check(await this.sb.rpc('book_court', { p_court: courtId, p_unit: unit, p_start: start, p_minutes: minutes, p_pay: pay }));
+    this.notify('bk_new', id);
+    return id;
+  }
+  async payInfo(bookingId) { return check(await this.sb.rpc('booking_pay_info', { p_id: bookingId })); }
+  async attachReceipt(bookingId, file) {
+    const ext = file.type === 'application/pdf' ? 'pdf' : 'jpg';
+    const path = `${this.uid()}/${fileId()}.${ext}`;
+    check(await this.sb.storage.from('receipts').upload(path, file, { contentType: file.type || 'image/jpeg' }));
+    check(await this.sb.rpc('booking_receipt', { p_id: bookingId, p_path: path }));
+    this.notify('bk_receipt', bookingId);
+  }
+  async receiptUrl(path) {
+    if (!path) return '';
+    return check(await this.sb.storage.from('receipts').createSignedUrl(path, 600))?.signedUrl || '';
+  }
+  async myBookings() {
+    await this.sb.rpc('expire_court_holds');
+    const rows = check(await this.sb.from('court_bookings').select(`*, court:courts(${COURT_COLS}), review:court_reviews(id)`).eq('player_id', this.uid())
+      .order('starts_at', { ascending: false }).limit(100));
+    return rows.map(toBooking);
+  }
+  async cancelBooking(id, reason = '') { const prev = check(await this.sb.rpc('cancel_booking', { p_id: id, p_reason: reason })); this.notify('bk_cancel', id); return prev; }
+  // Bookings that need the court's attention: receipts to check, unpaid, upcoming cash
+  async courtInbox(courtId) {
+    await this.sb.rpc('expire_court_holds');
+    return check(await this.sb.from('court_bookings').select('*').eq('court_id', courtId).in('status', ['paid', 'await_pay', 'cash'])
+      .gte('ends_at', new Date().toISOString()).order('starts_at').limit(60)).map(toBooking);
+  }
+  async courtDay(courtId, day) { return (check(await this.sb.rpc('court_day', { p_court: courtId, p_day: day })) || []).map(toBooking); }
+  async courtAction(id, action, reason = '') {
+    check(await this.sb.rpc('court_booking_action', { p_id: id, p_action: action, p_reason: reason }));
+    if (action === 'paid') this.notify('bk_paid', id);
+    if (action === 'decline') this.notify('bk_declined', id);
+  }
+  async courtBlock({ courtId, unit, start, minutes, note }) { return check(await this.sb.rpc('court_block', { p_court: courtId, p_unit: unit, p_start: start, p_minutes: minutes, p_note: note || '' })); }
+  async reviewCourt(bookingId, stars, text) { check(await this.sb.rpc('review_court', { p_booking: bookingId, p_stars: stars, p_text: text || '' })); }
+
+  // ---------- push notifications ----------
+  async pushKey() {
+    const { data, error } = await this.sb.functions.invoke('telegram-login', { body: { action: 'vapid' } });
+    if (error || !data?.key) throw new Error('Сервер уведомлений недоступен');
+    return data.key;
+  }
+  async savePushSub(sub) {
+    const j = sub.toJSON();
+    await this.sb.from('push_subs').delete().eq('endpoint', j.endpoint);
+    check(await this.sb.from('push_subs').insert({ user_id: this.uid(), endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }));
+  }
+  async deletePushSub(endpoint) { await this.sb.from('push_subs').delete().eq('endpoint', endpoint); }
 
   // ---------- admin ----------
   async inviteCoach({ phone, firstName, lastName }) { check(await this.sb.rpc('invite_coach', { p_phone: phone, p_first: firstName, p_last: lastName })); }

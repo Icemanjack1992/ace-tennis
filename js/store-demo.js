@@ -2,6 +2,7 @@
 import {
   uid, nowIso, addHours, newPlayer, confirmMatch, expirePending, pendingFor, newMatch, newTraining,
   confirmersOf, involves, applySanctions, makeBracket, advanceBracket, rollSeason,
+  courtPrice, tashIso, tashToday, addDays, ACTIVE_BOOKING,
 } from './logic.js';
 import { winnerFromSets, leagueFor, FAIRPLAY_MIN_FOR_TOURNAMENT, fairplay, TOURNAMENT_BONUS } from './rating.js';
 
@@ -158,7 +159,35 @@ export class DemoStore {
     // Player numbers (ID) and region for old demo data
     this.db.users.forEach((u, i) => { if (!u.playerNo) u.playerNo = 10001 + i; if (!u.region && u.district) u.region = 'namangan'; });
     if (!this.db.courts) this.db.courts = clone(DEMO_COURTS);
+    this.seedVenue();
     this.save();
+  }
+  // Demo court account: «Дўстлик» with prices, photos, a card and a few bookings
+  seedVenue() {
+    if (this.db.venueSeeded) return;
+    this.db.venueSeeded = true; this.db.bookings = this.db.bookings || []; this.db.courtReviews = this.db.courtReviews || []; this.db.courtRequests = this.db.courtRequests || [];
+    const owner = newPlayer({ role: 'court', firstName: 'Шухрат', lastName: 'Каримов', phone: '+998901234500', region: 'namangan', district: 'г. Наманган', availability: ['вечер'] });
+    owner.termsVer = (this.db.users.find((u) => u.termsVer) || {}).termsVer || '';
+    this.db.users.push(owner);
+    const svg = (bg, fg, t) => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500"><rect width="800" height="500" fill="${bg}"/><rect x="120" y="90" width="560" height="320" fill="none" stroke="${fg}" stroke-width="6"/><path d="M400 90v320M120 250h560" stroke="${fg}" stroke-width="4"/><text x="400" y="470" font-family="sans-serif" font-size="28" fill="${fg}" text-anchor="middle">${t}</text></svg>`);
+    Object.assign(this.db.courts[0], { ownerId: owner.id, verified: true, checked: true, bookingOn: true, phone: '+998 90 123 45 00', courts: 3, surface: 'hard', lights: true,
+      amenities: ['shower', 'locker', 'parking', 'water'], description: 'Три хард-корта с освещением в центре Наманган.',
+      photos: { court: [svg('#2E6F95', '#fff', 'Корт 1'), svg('#3A7D5C', '#fff', 'Корт 2')], shower: [svg('#E7ECEF', '#456', 'Душ')], locker: [svg('#EFE8DF', '#654', 'Раздевалка')] },
+      openMin: 420, closeMin: 1380, priceRules: [{ d: 'wd', f: 420, t: 1020, p: 80000 }, { d: 'wd', f: 1020, t: 1380, p: 120000 }, { d: 'we', f: 420, t: 1380, p: 150000 }],
+      cardNumber: '8600 0000 0000 0000', cardHolder: 'SHUKHRAT KARIMOV', ratingSum: 9, ratingCount: 2 });
+    const p = this.db.users.filter((u) => u.role === 'player');
+    const today = tashToday();
+    const mk = (pl, day, min, minutes, unit, status, pay) => this.db.bookings.push({ id: uid(), courtId: 'court0', unit, start: tashIso(addDays(today, day), min),
+      end: tashIso(addDays(today, day), min + minutes), playerId: pl ? pl.id : null, kind: pl ? 'app' : 'offline', pay, status,
+      price: pl ? courtPrice(this.db.courts[0], tashIso(addDays(today, day), min), minutes) : 0, playerName: pl ? `${pl.firstName} ${pl.lastName}` : '',
+      playerPhone: pl ? pl.phone.replace(/\D/g, '') : '', note: pl ? '' : 'Алишер, постоянный клиент', receipt: '', holdUntil: null, noshow: false, cancelReason: '', cancelledBy: '', createdAt: nowIso() });
+    mk(p[1], 1, 18 * 60, 90, 1, 'cash', 'cash');
+    mk(p[2], 1, 19 * 60, 60, 2, 'confirmed', 'card');
+    mk(null, 1, 8 * 60, 120, 1, 'blocked', 'none');
+    mk(p[3], 2, 17 * 60, 60, 1, 'paid', 'card');
+    this.db.bookings[this.db.bookings.length - 1].receipt = svg('#fff', '#333', 'Чек: 120 000 сум');
+    this.db.courtReviews.push({ id: uid(), courtId: 'court0', bookingId: 'old1', authorId: p[4].id, stars: 5, text: 'Отличное покрытие, есть душ.', createdAt: nowIso() },
+      { id: uid(), courtId: 'court0', bookingId: 'old2', authorId: p[5].id, stars: 4, text: 'Хорошо, но вечером много людей.', createdAt: nowIso() });
   }
   save() { safeSet(JSON.stringify(this.db)); }
   reset() { this.db = seed(); this.save(); }
@@ -176,6 +205,7 @@ export class DemoStore {
   async loginAs(role) {
     const u = role === 'admin' ? this.db.users.find((x) => x.role === 'admin')
       : role === 'coach' ? this.db.users.find((x) => x.role === 'coach')
+      : role === 'court' ? this.db.users.find((x) => x.role === 'court')
       : this.db.users.find((x) => x.role === 'player');
     this.db.meId = u.id; this.save(); return clone(u);
   }
@@ -451,6 +481,130 @@ export class DemoStore {
     else this.db.courts.push({ indoor: false, lights: false, phone: '', price: '', note: '', checked: true, active: true, ...c, id: uid() });
     this.save();
   }
+
+  // ---------- court accounts and booking (same rules as supabase/update-12.sql) ----------
+  bk() { this.db.bookings = this.db.bookings || []; this.db.bookings.forEach((b) => { if (b.status === 'await_pay' && b.holdUntil && new Date(b.holdUntil) < new Date()) b.status = 'expired'; }); return this.db.bookings; }
+  ownerOf(courtId) { const c = this.db.courts.find((x) => x.id === courtId); return c && c.ownerId === this.db.meId; }
+  async courtRequest(d) {
+    this.db.courtRequests = this.db.courtRequests || [];
+    if (this.db.courtRequests.some((r) => r.phone === d.phone && r.status === 'new')) throw new Error('Заявка с этим номером уже отправлена — администратор свяжется с вами');
+    const docs = [];
+    for (const f of d.docs || []) docs.push(await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(f); }));
+    this.db.courtRequests.unshift({ id: uid(), ...d, docs, status: 'new', courtId: null, createdAt: nowIso() }); this.save();
+  }
+  async courtRequests() { return clone(this.db.courtRequests || []); }
+  async resolveCourtRequest(id, approve, courtId = null) {
+    const r = (this.db.courtRequests || []).find((x) => x.id === id);
+    if (!r || r.status !== 'new') throw new Error('Заявка не найдена');
+    if (!approve) { r.status = 'rejected'; this.save(); return null; }
+    let c = courtId ? this.db.courts.find((x) => x.id === courtId) : null;
+    if (!c) { c = { id: uid(), region: r.region, city: r.city || '', name: r.venueName, address: r.address || '', lat: null, lng: null, courts: r.courtsCount || 1, surface: '', indoor: false, lights: false, phone: '+' + r.phone, price: '', note: '', checked: true, active: true }; this.db.courts.push(c); }
+    let u = this.db.users.find((x) => x.phone && x.phone.replace(/\D/g, '') === r.phone.replace(/\D/g, ''));
+    if (!u) { u = newPlayer({ phone: '+' + r.phone, firstName: r.ownerName.split(' ')[0] || r.ownerName, lastName: r.ownerName.split(' ').slice(1).join(' '), region: r.region }); this.db.users.push(u); }
+    this.db.courts.forEach((x) => { if (x.ownerId === u.id) x.ownerId = null; });
+    Object.assign(c, { ownerId: u.id, verified: true, checked: true, active: true });
+    u.role = 'court'; r.status = 'approved'; r.courtId = c.id; this.save(); return c.id;
+  }
+  async court(id) { return clone(this.db.courts.find((c) => c.id === id) || null); }
+  async courtReviews(courtId) { return clone((this.db.courtReviews || []).filter((r) => r.courtId === courtId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))); }
+  async myCourt() { const c = this.db.courts.find((x) => x.ownerId === this.db.meId); return c ? clone({ cardNumber: '', cardHolder: '', ...c }) : null; }
+  async saveMyCourt(d) {
+    const c = this.db.courts.find((x) => x.ownerId === this.db.meId); if (!c) throw new Error('У вас нет корта');
+    if (d.bookingOn) {
+      if (!(d.priceRules || []).length) throw new Error('Чтобы включить бронь, укажите цены');
+      if (!(d.photos?.court || []).length) throw new Error('Чтобы включить бронь, добавьте хотя бы одно фото корта');
+      if (!d.phone) throw new Error('Чтобы включить бронь, укажите телефон корта');
+    }
+    if (d.openMin >= d.closeMin) throw new Error('Проверьте часы работы');
+    for (const r of d.priceRules || []) if (!(r.f < r.t && r.f % 30 === 0 && r.t % 30 === 0 && r.p >= 0)) throw new Error('Проверьте цены: время с … до …, цена за час');
+    const { id, ownerId, verified, checked, active, ratingSum, ratingCount, ...rest } = d;
+    Object.assign(c, rest, { courts: Math.max(1, Math.min(60, +d.courts || 1)) }); this.save();
+  }
+  async uploadCourtPhoto(courtId, file) { return new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(file); }); }
+  async courtBusy(courtId, day) {
+    const a = Date.parse(tashIso(day, 0)), b = Date.parse(tashIso(day, 1440));
+    return this.bk().filter((x) => x.courtId === courtId && ACTIVE_BOOKING.includes(x.status) && Date.parse(x.start) < b && Date.parse(x.end) > a).map((x) => ({ unit: x.unit, start: x.start, end: x.end }));
+  }
+  async bookCourt({ courtId, unit, start, minutes, pay }) {
+    const me = this.me(); const c = this.db.courts.find((x) => x.id === courtId);
+    if (!me || !['player', 'coach'].includes(me.role)) throw new Error('Бронировать корт может только игрок или тренер');
+    if (!me.phone) throw new Error('Укажите номер телефона в профиле');
+    if (!c || !c.bookingOn || !c.ownerId) throw new Error('Этот корт пока не принимает брони');
+    if (unit < 1 || unit > c.courts) throw new Error('Нет такого корта');
+    if (![60, 90, 120, 150, 180].includes(minutes)) throw new Error('Бронь — от 1 до 3 часов');
+    if (Date.parse(start) < Date.now()) throw new Error('Это время уже прошло');
+    if (pay === 'card' && !c.cardNumber) throw new Error('Корт пока не принимает предоплату картой — выберите наличные');
+    const price = courtPrice(c, start, minutes); if (price === null) throw new Error('В это время корт не работает');
+    const end = new Date(Date.parse(start) + minutes * 60e3).toISOString();
+    if (this.bk().filter((x) => x.playerId === me.id && ['cash', 'await_pay', 'paid', 'confirmed'].includes(x.status) && Date.parse(x.end) > Date.now()).length >= 4) throw new Error('У вас уже 4 активные брони — сначала сыграйте или отмените одну');
+    if (this.bk().some((x) => x.courtId === courtId && x.unit === unit && ACTIVE_BOOKING.includes(x.status) && Date.parse(x.start) < Date.parse(end) && Date.parse(x.end) > Date.parse(start))) throw new Error('Это время уже занято — выберите другое');
+    const b = { id: uid(), courtId, unit, start: new Date(start).toISOString(), end, playerId: me.id, kind: 'app', pay, status: pay === 'card' ? 'await_pay' : 'cash', price,
+      playerName: `${me.firstName} ${me.lastName}`.trim(), playerPhone: String(me.phone).replace(/\D/g, ''), note: '', receipt: '', holdUntil: pay === 'card' ? new Date(Date.now() + 30 * 60e3).toISOString() : null,
+      noshow: false, cancelReason: '', cancelledBy: '', createdAt: nowIso() };
+    this.db.bookings.push(b); this.save(); return b.id;
+  }
+  async payInfo(id) {
+    const b = this.bk().find((x) => x.id === id); const c = this.db.courts.find((x) => x.id === b?.courtId); if (!b) throw new Error('Бронь не найдена');
+    return { card: c.cardNumber || '', holder: c.cardHolder || '', price: b.price, holdUntil: b.holdUntil, phone: c.phone, court: c.name };
+  }
+  async attachReceipt(id, file) {
+    const b = this.bk().find((x) => x.id === id && x.playerId === this.db.meId); if (!b) throw new Error('Бронь не найдена');
+    if (b.status === 'expired') throw new Error('Время на оплату вышло (30 минут) — забронируйте снова');
+    if (!['await_pay', 'paid'].includes(b.status)) throw new Error('Чек уже не нужен');
+    b.receipt = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(file); });
+    b.status = 'paid'; b.holdUntil = null; this.save();
+  }
+  async receiptUrl(path) { return path; }
+  async myBookings() {
+    const rv = new Set((this.db.courtReviews || []).map((r) => r.bookingId));
+    return clone(this.bk().filter((b) => b.playerId === this.db.meId).sort((a, b) => b.start.localeCompare(a.start))
+      .map((b) => ({ ...b, court: this.db.courts.find((c) => c.id === b.courtId), reviewed: rv.has(b.id) })));
+  }
+  async cancelBooking(id, reason = '') {
+    const b = this.bk().find((x) => x.id === id); if (!b) throw new Error('Бронь не найдена');
+    const byCourt = this.ownerOf(b.courtId) || this.me()?.role === 'admin';
+    if (!byCourt && b.playerId !== this.db.meId) throw new Error('Нет доступа');
+    if (!ACTIVE_BOOKING.includes(b.status)) throw new Error('Бронь уже не активна');
+    const c = this.db.courts.find((x) => x.id === b.courtId);
+    if (!byCourt && b.status !== 'await_pay' && Date.parse(b.start) - Date.now() < 12 * 3600e3) throw new Error(`Отменить можно не позднее чем за 12 часов до игры. Позвоните корту: ${c.phone}`);
+    const prev = b.status; b.status = 'cancelled'; b.cancelledBy = byCourt && b.playerId !== this.db.meId ? 'court' : 'player'; b.cancelReason = reason || ''; this.save(); return prev;
+  }
+  async courtInbox(courtId) {
+    if (!this.ownerOf(courtId) && this.me()?.role !== 'admin') throw new Error('Нет доступа');
+    return clone(this.bk().filter((x) => x.courtId === courtId && ['paid', 'await_pay', 'cash'].includes(x.status) && Date.parse(x.end) > Date.now()).sort((a, b) => a.start.localeCompare(b.start)));
+  }
+  async courtDay(courtId, day) {
+    if (!this.ownerOf(courtId) && this.me()?.role !== 'admin') throw new Error('Нет доступа');
+    const a = Date.parse(tashIso(day, 0)), z = Date.parse(tashIso(day, 1440));
+    return clone(this.bk().filter((x) => x.courtId === courtId && Date.parse(x.start) < z && Date.parse(x.end) > a).sort((x, y) => x.start.localeCompare(y.start) || x.unit - y.unit)
+      .map((x) => ({ ...x, playerNoshows: this.bk().filter((y) => y.playerId && y.playerId === x.playerId && y.noshow).length })));
+  }
+  async courtAction(id, action, reason = '') {
+    const b = this.bk().find((x) => x.id === id); if (!b || !(this.ownerOf(b.courtId) || this.me()?.role === 'admin')) throw new Error('Нет доступа');
+    if (action === 'paid') { if (!['await_pay', 'paid', 'cash'].includes(b.status)) throw new Error('Бронь уже не активна'); b.status = 'confirmed'; b.holdUntil = null; }
+    else if (action === 'decline') { if (b.kind !== 'app' || !['cash', 'await_pay', 'paid', 'confirmed'].includes(b.status)) throw new Error('Бронь уже не активна'); b.status = 'declined'; b.cancelledBy = 'court'; b.cancelReason = reason || ''; }
+    else if (action === 'noshow') { if (Date.parse(b.start) > Date.now()) throw new Error('Отметить неявку можно после начала игры'); b.noshow = !b.noshow; }
+    this.save();
+  }
+  async courtBlock({ courtId, unit, start, minutes, note }) {
+    if (!this.ownerOf(courtId) && this.me()?.role !== 'admin') throw new Error('Нет доступа');
+    const end = new Date(Date.parse(start) + minutes * 60e3).toISOString();
+    if (this.bk().some((x) => x.courtId === courtId && x.unit === unit && ACTIVE_BOOKING.includes(x.status) && Date.parse(x.start) < Date.parse(end) && Date.parse(x.end) > Date.parse(start))) throw new Error('Это время уже занято');
+    const b = { id: uid(), courtId, unit, start: new Date(start).toISOString(), end, playerId: null, kind: 'offline', pay: 'none', status: 'blocked', price: 0, playerName: '', playerPhone: '', note: note || '', receipt: '', holdUntil: null, noshow: false, cancelReason: '', cancelledBy: '', createdAt: nowIso() };
+    this.db.bookings.push(b); this.save(); return b.id;
+  }
+  async reviewCourt(bookingId, stars, text) {
+    const b = this.bk().find((x) => x.id === bookingId && x.playerId === this.db.meId); if (!b) throw new Error('Бронь не найдена');
+    if (!['cash', 'confirmed'].includes(b.status) || b.noshow) throw new Error('Оценить можно только корт, где вы играли');
+    if (Date.parse(b.end) > Date.now()) throw new Error('Оценить можно после игры');
+    this.db.courtReviews = (this.db.courtReviews || []).filter((r) => r.bookingId !== bookingId);
+    this.db.courtReviews.push({ id: uid(), courtId: b.courtId, bookingId, authorId: this.db.meId, stars, text: text || '', createdAt: nowIso() });
+    const c = this.db.courts.find((x) => x.id === b.courtId); const rs = this.db.courtReviews.filter((r) => r.courtId === c.id);
+    c.ratingSum = rs.reduce((s, r) => s + r.stars, 0); c.ratingCount = rs.length; this.save();
+  }
+  async pushKey() { throw new Error('В демо-режиме уведомления не отправляются'); }
+  async savePushSub() {}
+  async deletePushSub() {}
   async coachRequests() { return clone(this.db.coachRequests || []); }
   async resolveCoachRequest(id, approve, region = null) {
     const r = (this.db.coachRequests || []).find((x) => x.id === id);

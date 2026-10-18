@@ -175,3 +175,32 @@ export function advanceBracket(t, match) {
   if (si >= 0) b.final[si === 0 ? 'a' : 'b'] = winnerId;
   if (slot === b.final) t.status = 'finished';
 }
+
+// ---------- court booking: Tashkent time (UTC+5, no summer time) and prices ----------
+export const TZ_MIN = 5 * 60;
+// ISO → { date: 'YYYY-MM-DD', min: minutes from midnight, dow: 1 (Mon) … 7 (Sun) } in Tashkent time
+export function tashLocal(iso) {
+  const d = new Date(new Date(iso).getTime() + TZ_MIN * 60e3);
+  return { date: d.toISOString().slice(0, 10), min: d.getUTCHours() * 60 + d.getUTCMinutes(), dow: d.getUTCDay() || 7 };
+}
+// 'YYYY-MM-DD' + minutes in Tashkent → ISO (UTC)
+export const tashIso = (date, min) => new Date(Date.parse(`${date}T00:00:00Z`) + (min - TZ_MIN) * 60e3).toISOString();
+export const tashToday = () => tashLocal(new Date().toISOString()).date;
+export const addDays = (date, n) => new Date(Date.parse(`${date}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+// Price of [start, start+minutes) by the court's rules, same as court_price() in the database. null = closed / no price.
+export function courtPrice(c, startIso, minutes) {
+  let total = 0;
+  for (let k = 0; k < minutes; k += 30) {
+    const { min, dow } = tashLocal(new Date(new Date(startIso).getTime() + k * 60e3).toISOString());
+    if (min < c.openMin || min + 30 > c.closeMin) return null;
+    let p = null;
+    for (const r of c.priceRules || []) {
+      const day = r.d === 'all' || (r.d === 'wd' && dow <= 5) || (r.d === 'we' && dow >= 6);
+      if (day && min >= r.f && min + 30 <= r.t && (p === null || r.d !== 'all')) p = +r.p;
+    }
+    if (p === null) return null;
+    total += p / 2;
+  }
+  return Math.round(total);
+}
+export const ACTIVE_BOOKING = ['cash', 'await_pay', 'paid', 'confirmed', 'blocked'];

@@ -1,6 +1,7 @@
 import { DemoStore } from './store-demo.js';
 import { SupabaseStore } from './store-supabase.js';
 import * as C from './courts.js';
+import * as B from './booking.js';
 import { L, icon, setLang, getLang, toast, profileDone, newerVersion, updateApp } from './ui.js';
 import * as V from './views.js';
 
@@ -24,6 +25,11 @@ const routes = [
   [/^#\/tournaments$/, V.tournaments, { tab: 'home' }],
   [/^#\/tournament\/([\w-]+)$/, V.tournament, { tab: 'home' }],
   [/^#\/courts$/, C.courtsView, { tab: 'home' }],
+  [/^#\/court\/([\w-]+)$/, B.courtPage, { tab: 'home' }],
+  [/^#\/bookings$/, B.bookingsView, { tab: 'home' }],
+  [/^#\/venue$/, B.venueView, { tab: 'venue', court: true }],
+  [/^#\/venue\/edit$/, B.venueEdit, { tab: 'venueEdit', court: true }],
+  [/^#\/venue\/me$/, B.venueMe, { tab: 'venueMe', court: true, gateFree: true }],
   [/^#\/news$/, V.news, { tab: 'home' }],
   [/^#\/news\/([\w-]+)$/, V.newsItem, { tab: 'home' }],
   [/^#\/admin(?:\/(\w+))?(?:\/([\w-]+))?$/, V.admin, { tab: 'admin', admin: true }],
@@ -40,6 +46,15 @@ function nav(active) {
     ${a('#/admin/tournaments', 'tournaments', icon.bracket, L('Турниры', 'Turnirlar'))}
     ${a('#/rating', 'rating', icon.trophy, L('Рейтинг', 'Reyting'))}
     ${a('#/news', 'home', icon.news, L('Новости', 'Yangiliklar'))}
+  </nav>`;
+  }
+  // The court owner: schedule, his court, news, profile
+  if (store.me()?.role === 'court') {
+    return `<nav class="tabs" aria-label="${L('Меню корта', 'Kort menyusi')}">
+    ${a('#/venue', 'venue', icon.clock, L('Брони', 'Bronlar'))}
+    ${a('#/venue/edit', 'venueEdit', icon.settings, L('Мой корт', 'Kortim'))}
+    ${a('#/news', 'home', icon.news, L('Новости', 'Yangiliklar'))}
+    ${a('#/venue/me', 'venueMe', icon.user, L('Профиль', 'Profil'))}
   </nav>`;
   }
   return `<nav class="tabs" aria-label="${L('Основное меню', 'Asosiy menyu')}">
@@ -85,6 +100,9 @@ export async function render(keepScroll = false) {
   if (opts.admin && me?.role !== 'admin') { location.hash = '#/home'; return; }
   if (me?.role === 'admin' && /^#\/(add|confirm|edit|profile$|home)/.test(hash)) { location.hash = '#/admin'; return; }
   if (me?.role === 'admin' && hash === '#/tournaments') { location.hash = '#/admin/tournaments'; return; }
+  // The court owner does not play: no home, matches or rating — his schedule instead
+  if (me?.role === 'court' && /^#\/(home|add|confirm|search|rating|profile|tournaments|bookings)/.test(hash)) { location.hash = '#/venue'; return; }
+  if (opts.court && me?.role !== 'court') { location.hash = me?.role === 'admin' ? '#/admin' : '#/home'; return; }
   // The administrator has a separate "Tournaments" tab in the bottom menu
   const tab = me?.role === 'admin' && /^#\/(admin\/tournaments|tournament\/)/.test(hash) ? 'tournaments' : opts.tab;
   // Instant feedback: highlight the tab right away, the screen follows

@@ -6,6 +6,7 @@ import { termsHtml, termsTitle, operatorHtml } from './terms.js';
 import { REGIONS, region, regionShort, districtName, regionOf } from './regions.js';
 import { courtLine, courtSelect, EQUIPMENT, equipmentName, adminCourts } from './courts.js';
 import { shareSheet } from './share.js';
+import { courtRequestSheet, homeBookings, adminCourtRequests, bindAdminCourtRequests } from './booking.js';
 import { formatStrength, LEAGUES, fairplay, formatSets, winnerFromSets, FAIRPLAY_MIN_FOR_TOURNAMENT, seasonParts } from './rating.js';
 
 const rerender = () => window.dispatchEvent(new Event('ace:rerender'));
@@ -52,7 +53,7 @@ const scoreFor = (m, userId) => {
 };
 const wonBy = (m, userId) => (m.winner || winnerFromSets(m.sets)) === (m.teamA.includes(userId) ? 'A' : 'B');
 const toLocalInput = (d) => { const z = new Date(d.getTime() - d.getTimezoneOffset() * 6e4); return z.toISOString().slice(0, 16); };
-async function act(btn, fn) {
+export async function act(btn, fn) {
   btn.disabled = true;
   try { await fn(); } catch (e) { toast(e.message); } finally { btn.disabled = false; }
 }
@@ -123,10 +124,10 @@ export const deleteAccountPage = {
   },
   mount(root, _, store) { root.querySelector('[data-delacc]')?.addEventListener('click', () => deleteAccountSheet(store)); },
 };
-const termsCheck = (id, checked = false) => `<label class="row mt small" style="gap:10px;align-items:flex-start;cursor:pointer">
+export const termsCheck = (id, checked = false) => `<label class="row mt small" style="gap:10px;align-items:flex-start;cursor:pointer">
   <input type="checkbox" id="${id}" ${checked ? 'checked' : ''} required style="width:22px;height:22px;flex-shrink:0;margin:0;accent-color:var(--court)">
   <span>${L('Я прочитал(а) и принимаю', 'O‘qidim va qabul qilaman:')} <button type="button" class="linkbtn" data-terms style="all:unset;text-decoration:underline;font-weight:800;cursor:pointer">${L('Пользовательское соглашение', 'Foydalanuvchi kelishuvi')}</button>${L(', в том числе согласие на обработку персональных данных и условия для тренеров', ', shu jumladan shaxsiy ma’lumotlarni qayta ishlashga rozilik va murabbiylar uchun shartlar')}</span></label>`;
-const bindTerms = (root) => root.querySelectorAll('[data-terms]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); termsSheet(); }));
+export const bindTerms = (root) => root.querySelectorAll('[data-terms]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); termsSheet(); }));
 
 export const login = {
   render(_, store) {
@@ -162,6 +163,7 @@ export const login = {
         <div class="strong" style="font-size:17px">${L('Вы тренер по теннису?', 'Siz tennis murabbiyimisiz?')}</div>
         <div class="sub mt" style="margin-top:6px">${L('Оставьте заявку — администратор свяжется с вами. После одобрения вы зарегистрируетесь и сразу получите профиль тренера.', 'Ariza qoldiring — administrator siz bilan bog‘lanadi. Tasdiqlangach, ro‘yxatdan o‘tib murabbiy profilini olasiz.')}</div>
         <button class="btn ball block mt" type="button" data-coach-req>${L('Оставить заявку тренера', 'Murabbiy arizasini qoldirish')}</button>
+        <button class="btn ghost block mt" type="button" data-court-req style="background:transparent;color:#fff;border-color:rgba(255,255,255,.3)">${L('Зарегистрировать корт', 'Kortni ro‘yxatdan o‘tkazish')}</button>
       </div>
       ${tg || mail ? installHint(false) : ''}
       <div class="card" ${showSms ? '' : 'hidden'}>
@@ -184,6 +186,7 @@ export const login = {
           <button class="btn ghost sm" data-as="player">${L('Игрок', 'O‘yinchi')}</button>
           <button class="btn ghost sm" data-as="coach">${L('Тренер', 'Murabbiy')}</button>
           <button class="btn ghost sm" data-as="admin">${L('Админ', 'Admin')}</button>
+          <button class="btn ghost sm" data-as="court">${L('Корт', 'Kort')}</button>
         </div></div>` : ''}
       <div class="center"><button class="chip" data-lang>${getLang() === 'ru' ? 'O‘zbekcha' : 'Русский'}</button></div>
       <div class="center muted small mt" style="line-height:1.6">${esc((window.ACE_CONFIG || {}).company || '')}${(window.ACE_CONFIG || {}).company ? ' · ' : ''}<a href="#/terms" style="color:inherit">${termsTitle()}</a> · <a href="#/delete-account" style="color:inherit">${L('Удаление аккаунта', 'Akkauntni o‘chirish')}</a></div>
@@ -278,10 +281,11 @@ export const login = {
       if (store.telegramPending?.()) startPolling(); // came back after the page reloaded
     }
     root.querySelectorAll('[data-as]').forEach((b) => b.addEventListener('click', async () => {
-      await store.loginAs(b.dataset.as); go(b.dataset.as === 'admin' ? '#/admin' : '#/home');
+      await store.loginAs(b.dataset.as); go(b.dataset.as === 'admin' ? '#/admin' : b.dataset.as === 'court' ? '#/venue' : '#/home');
     }));
     root.querySelector('[data-lang]').addEventListener('click', () => { setLang(getLang() === 'ru' ? 'uz' : 'ru'); rerender(); });
     root.querySelector('[data-coach-req]')?.addEventListener('click', () => coachRequestSheet(store));
+    root.querySelector('[data-court-req]')?.addEventListener('click', () => courtRequestSheet(store));
     root.querySelector('[data-forgot]')?.addEventListener('click', () => emailCodeSheet(store, root.querySelector('#em')?.value.trim().toLowerCase() || '', 'reset'));
   },
 };
@@ -390,8 +394,21 @@ function coachRequestSheet(store) {
 // =====================================================================
 // Onboarding / edit profile
 // =====================================================================
+// Court owner: only name, phone and the agreement
+function courtOwnerForm(u) {
+  const isNew = !profileDone(u);
+  return `<div class="pagehead">${isNew ? '' : back('#/venue/me', true)}<h1 class="title">${L('Мои данные', 'Ma’lumotlarim')}</h1></div>
+    <form class="wrap" id="pfc"><div class="card">
+      <div class="grid2"><div><label class="f" for="fn">${L('Имя', 'Ism')}*</label><input id="fn" class="input" required value="${esc(u.firstName)}"></div>
+        <div><label class="f" for="ln">${L('Фамилия', 'Familiya')}</label><input id="ln" class="input" value="${esc(u.lastName)}"></div></div>
+      <label class="f" for="ph">${L('Номер телефона', 'Telefon raqami')}*</label>
+      <input id="ph" class="input" type="tel" inputmode="tel" required value="${esc(u.phone ? fmtPhone(u.phone) : '+998 ')}"></div>
+      <div class="card">${termsCheck('terms', u.termsVer === TERMS_VERSION)}</div>
+      <button class="btn ball block" type="submit">${L('Сохранить', 'Saqlash')}</button></form>`;
+}
 export const onboarding = {
   async render(_, store) {
+    if (store.me().role === 'court') return courtOwnerForm(store.me());
     const u = store.me(); const isCoach = u.role === 'coach'; const isNew = !profileDone(u);
     // The coach's region is set by the administrator
     const rgLocked = isCoach && !!regionOf(u);
@@ -444,6 +461,21 @@ export const onboarding = {
     </form>`;
   },
   mount(root, _, store) {
+    if (store.me().role === 'court') {
+      bindTerms(root);
+      root.querySelector('#pfc').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const v = (id) => root.querySelector('#' + id).value.trim();
+        if (!root.querySelector('#terms').checked) { toast(L('Примите пользовательское соглашение', 'Foydalanuvchi kelishuvini qabul qiling')); return; }
+        const phone = normPhone(v('ph'));
+        if (!phone) { toast(L('Введите номер в формате +998 90 123 45 67', 'Raqamni +998 90 123 45 67 shaklida kiriting')); return; }
+        const me = store.me(); const patch = { firstName: v('fn'), lastName: v('ln') };
+        if (phone !== normPhone(me.phone)) patch.phone = phone;
+        if (me.termsVer !== TERMS_VERSION) patch.termsVer = TERMS_VERSION;
+        act(e.submitter, async () => { await store.saveProfile(patch); toast(L('Сохранено', 'Saqlandi')); go('#/venue'); });
+      });
+      return;
+    }
     let photo = store.me().photo;
     bindTerms(root);
     const rg = root.querySelector('#rg');
@@ -484,7 +516,7 @@ export const onboarding = {
   },
 };
 
-function resizeImage(file, max) {
+export function resizeImage(file, max) {
   return new Promise((res, rej) => {
     const img = new Image(); const url = URL.createObjectURL(file);
     img.onload = () => {
@@ -637,12 +669,13 @@ export const home = {
         `<label class="row mt small strong" style="gap:8px;cursor:pointer"><input type="checkbox" data-share-ans="${c.id}" checked style="width:20px;height:20px;accent-color:var(--court)">${L('Показать мой номер сопернику', 'Raqamimni raqibga ko‘rsatish')}</label>
         <div class="grid2 mt"><button class="btn sm" data-ans="${c.id}:accepted">${L('Принять', 'Qabul qilish')}</button><button class="btn ghost sm" data-ans="${c.id}:declined">${L('Отказать', 'Rad etish')}</button></div>`}</div>`).join('')}
       ${outCards ? `<div class="card"><h2 class="h">${L('Мои записи', 'Mening yozuvlarim')}</h2><div class="list">${outCards}</div></div>` : ''}
+      ${await homeBookings(store)}
       <div class="grid2">
         <a href="#/tournaments" class="card dark" style="text-decoration:none;display:flex;flex-direction:column;gap:6px">${icon.trophy.replace('currentColor', '#D8F244')}<span class="num" style="font-size:18px;text-transform:uppercase">${L('Турниры', 'Turnirlar')}</span><span class="sub small">${myTour ? L('Вы участвуете', 'Siz ishtirokchisiz') : L('Заявки и сетки', 'Arizalar va to‘rlar')}</span></a>
         <a href="#/news" class="card" style="text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:6px">${icon.news}<span class="num" style="font-size:18px;text-transform:uppercase">${L('Новости', 'Yangiliklar')}</span><span class="muted small">${L('Местные и мировые', 'Mahalliy va jahon')}</span></a>
       </div>
       <a href="#/courts" class="card row" style="text-decoration:none;color:inherit;gap:14px"><span style="width:44px;height:44px;border-radius:12px;background:var(--ball);color:var(--court);display:flex;align-items:center;justify-content:center;flex-shrink:0">${icon.pin}</span>
-        <div class="grow"><div class="num" style="font-size:18px;text-transform:uppercase">${L('Корты', 'Kortlar')}</div><div class="muted small">${L('Карта кортов вашей области и ближайшие к вам', 'Viloyatingiz kortlari xaritasi va eng yaqinlari')}</div></div><span class="muted">›</span></a>
+        <div class="grow"><div class="num" style="font-size:18px;text-transform:uppercase">${L('Корты', 'Kortlar')}</div><div class="muted small">${L('Карта, цены и бронь кортов вашей области', 'Viloyatingiz kortlari: xarita, narx va bron')}</div></div><span class="muted">›</span></a>
       ${sugg && !isCoach ? `<div class="card"><h2 class="h">${L('Вам подходит соперник', 'Sizga mos raqib')}</h2>
         <a href="#/profile/${sugg.id}" class="row" style="text-decoration:none;color:inherit">${avatar(sugg)}<div class="grow"><div class="strong">${esc(fullName(sugg))}</div><div class="muted">${L('УС', 'KD')} ${formatStrength(sugg.rating)} · ${leagueName(sugg.league)} · ${esc(sugg.availability.join(', '))}</div></div></a>
         <div class="row between mt">${formBadges(sugg.form)}<button class="btn ball sm" data-challenge="${sugg.id}">${L('Вызвать на матч', 'O‘yinga chaqirish')}</button></div></div>` : ''}
@@ -1566,7 +1599,7 @@ export const admin = {
           <div class="muted small" style="margin-top:6px">${r.docs?.length ? L('После одобрения тренер получит отметку «Проверенный тренер».', 'Tasdiqlangach murabbiy «Tekshirilgan murabbiy» belgisini oladi.') : L('Без документа тренер будет без отметки «Проверенный».', 'Hujjatsiz murabbiy «Tekshirilgan» belgisiz bo‘ladi.')}</div>
           <div class="grid2 mt"><button class="btn sm" data-creq="${r.id}:1">${L('Одобрить', 'Tasdiqlash')}</button><button class="btn ghost sm" data-creq="${r.id}:0">${L('Отклонить', 'Rad etish')}</button></div>` : ''}</div>`).join('') || `<div class="card"><div class="muted">${L('Заявок пока нет', 'Hozircha ariza yo‘q')}</div></div>`}`;
     }
-    if (tab === 'courts') body = await adminCourts.body(store);
+    if (tab === 'courts') body = (await adminCourtRequests(store).catch(() => '')) + await adminCourts.body(store);
     if (tab === 'tournaments') {
       const ts = (await store.tournaments()).filter((t) => !aState.region || (t.region || 'namangan') === aState.region);
       body = `${regionSelect('aRegion', aState.region)}
@@ -1598,7 +1631,7 @@ export const admin = {
     return `${head}<div class="wrap">${body}</div>`;
   },
   mount(root, params, store) {
-    if (params[0] === 'courts') adminCourts.bind(root, store, rerender);
+    if (params[0] === 'courts') { adminCourts.bind(root, store, rerender); bindAdminCourtRequests(root, store, rerender); }
     // Coach documents: temporary links, opened full size in a new tab
     root.querySelectorAll('[data-docs]').forEach(async (box) => {
       try {

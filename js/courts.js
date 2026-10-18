@@ -3,14 +3,14 @@ import { L, esc, icon, sheet, toast } from './ui.js';
 import { REGIONS, regionShort, regionOf } from './regions.js';
 
 export const SURFACES = [['hard', 'Хард', 'Hard'], ['clay', 'Грунт', 'Grunt'], ['grass', 'Трава', 'O‘t'], ['carpet', 'Ковёр', 'Gilam'], ['mixed', 'Хард и грунт', 'Hard va grunt']];
-const surfaceName = (v) => { const s = SURFACES.find((x) => x[0] === v); return s ? L(s[1], s[2]) : ''; };
+export const surfaceName = (v) => { const s = SURFACES.find((x) => x[0] === v); return s ? L(s[1], s[2]) : ''; };
 const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; };
 const courtsCount = (n) => `${n} ${L(plural(n, 'корт', 'корта', 'кортов'), 'kort')}`;
 
 // Links to navigation apps
 export const yandexLink = (c) => `https://yandex.uz/maps/?pt=${c.lng},${c.lat}&z=17&l=map`;
 export const googleLink = (c) => `https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}`;
-const hasPoint = (c) => c && Number.isFinite(+c.lat) && Number.isFinite(+c.lng) && c.lat !== null && c.lng !== null;
+export const hasPoint = (c) => c && Number.isFinite(+c.lat) && Number.isFinite(+c.lng) && c.lat !== null && c.lng !== null;
 
 // "📍 Дўстлик · Наманган" — opens the place in Yandex Maps
 export function courtLine(c, cls = 'muted small') {
@@ -58,12 +58,12 @@ function leaflet() {
   }
   return leafletP;
 }
-const pin = (Lf, on = false) => Lf.divIcon({ className: '', iconSize: [26, 26], iconAnchor: [13, 26],
+export const pin = (Lf, on = false) => Lf.divIcon({ className: '', iconSize: [26, 26], iconAnchor: [13, 26],
   html: `<div style="width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${on ? '#D8F244' : '#0E3B2C'};border:3px solid ${on ? '#0E3B2C' : '#D8F244'};box-shadow:0 2px 6px rgba(0,0,0,.35)"></div>` });
-const CENTER = { namangan: [41.0, 71.67], andijan: [40.78, 72.34], fergana: [40.39, 71.78], tashkent_city: [41.31, 69.28], tashkent: [41.2, 69.6],
+export const CENTER = { namangan: [41.0, 71.67], andijan: [40.78, 72.34], fergana: [40.39, 71.78], tashkent_city: [41.31, 69.28], tashkent: [41.2, 69.6],
   samarkand: [39.65, 66.97], bukhara: [39.77, 64.42], jizzakh: [40.12, 67.84], kashkadarya: [38.86, 65.79], navoi: [40.1, 65.38],
   surkhandarya: [37.22, 67.28], syrdarya: [40.49, 68.78], khorezm: [41.55, 60.63], karakalpakstan: [42.46, 59.61] };
-async function makeMap(el, center, zoom = 12) {
+export async function makeMap(el, center, zoom = 12) {
   const mod = await leaflet(); const Lf = mod.default || mod;
   const map = Lf.map(el, { zoomControl: true, attributionControl: true }).setView(center, zoom);
   Lf.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
@@ -79,14 +79,17 @@ export async function courtsBody(store, { admin = false, region = '' } = {}) {
   let list = (await store.courts(rg)).filter((c) => admin || c.active);
   if (cState.near) list = list.map((c) => ({ ...c, dist: hasPoint(c) ? distance(cState.near, c) : Infinity })).sort((a, b) => a.dist - b.dist);
   const card = (c) => `<div class="card" data-court="${c.id}" style="${c.active ? '' : 'opacity:.55'}">
-    <div class="row between" style="align-items:flex-start;gap:8px"><div class="grow"><div class="strong">${esc(c.name)}</div>
+    ${!admin && c.photos?.court?.length ? `<a href="#/court/${c.id}"><img src="${esc(c.photos.court[0])}" alt="" loading="lazy" style="width:100%;height:150px;object-fit:cover;border-radius:14px;margin-bottom:10px"></a>` : ''}
+    <div class="row between" style="align-items:flex-start;gap:8px"><div class="grow"><a class="strong" href="#/court/${c.id}" style="color:inherit">${esc(c.name)}</a>${c.verified ? ` <span class="tag ok" style="vertical-align:middle">✓ ${L('проверенный', 'tekshirilgan')}</span>` : ''}
       <div class="muted small">${esc([c.city, c.address].filter(Boolean).join(', '))}</div></div>
       ${c.dist !== undefined && c.dist !== Infinity ? `<span class="tag ok">${fmtDist(c.dist)}</span>` : ''}</div>
     <div class="chips mt" style="gap:6px">
       <span class="tag soft">${courtsCount(c.courts)}</span>${c.surface ? `<span class="tag soft">${surfaceName(c.surface)}</span>` : ''}
       ${c.indoor ? `<span class="tag soft">${L('крытый', 'yopiq')}</span>` : ''}${c.lights ? `<span class="tag soft">${L('освещение', 'yoritish')}</span>` : ''}
       ${c.checked ? '' : `<span class="tag warn">${L('данные уточняются', 'aniqlanmoqda')}</span>`}${c.active ? '' : `<span class="tag bad">${L('скрыт', 'yashirin')}</span>`}</div>
+    ${c.ratingCount ? `<div class="small mt"><span class="stars">★</span> <b>${(c.ratingSum / c.ratingCount).toFixed(1).replace('.', ',')}</b> <span class="muted">(${c.ratingCount})</span></div>` : ''}
     ${c.price ? `<div class="small mt">${esc(c.price)}</div>` : ''}${c.note ? `<div class="muted small mt">${esc(c.note)}</div>` : ''}
+    ${!admin && c.bookingOn && c.ownerId ? `<a class="btn ball block mt" href="#/court/${c.id}">${L('Забронировать', 'Bron qilish')}</a>` : ''}
     <div class="row mt" style="gap:8px;flex-wrap:wrap">
       ${hasPoint(c) ? `<button type="button" class="btn ghost sm" data-show="${c.id}">${L('На карте', 'Xaritada')}</button>
         <a class="btn ghost sm" href="${yandexLink(c)}" target="_blank" rel="noopener">${L('Яндекс', 'Yandex')}</a><a class="btn ghost sm" href="${googleLink(c)}" target="_blank" rel="noopener">Google</a>` : ''}
@@ -174,6 +177,7 @@ function courtSheet(store, c, done) {
         <div><label class="f" for="cpr">${L('Цена', 'Narx')}</label><input id="cpr" class="input" maxlength="80" placeholder="100 000 сум/час" value="${esc(v.price || '')}"></div></div>
       <label class="f" for="cno">${L('Примечание', 'Izoh')}</label><input id="cno" class="input" maxlength="200" value="${esc(v.note || '')}">
       ${chk('cok', v.checked, L('Данные проверены', 'Ma’lumot tekshirilgan'))}${chk('cac', v.active, L('Показывать игрокам', 'O‘yinchilarga ko‘rsatish'))}
+      ${v.ownerId ? chk('cve', v.verified, L('«Проверенный корт» (у корта есть аккаунт)', '«Tekshirilgan kort» (kortning akkaunti bor)')) : ''}
       <div class="grid2 mt"><button type="button" class="btn ghost" data-close>${L('Отмена', 'Bekor')}</button><button class="btn ball" id="cSave">${L('Сохранить', 'Saqlash')}</button></div>
     </form>`, async (el, close) => {
     let point = hasPoint(v) ? { lat: +v.lat, lng: +v.lng } : null;
@@ -203,7 +207,8 @@ function courtSheet(store, c, done) {
       try {
         await store.saveCourt({ id: c.id, region: g('crg2').value, city: g('cc').value.trim(), name: g('cn').value.trim(), address: g('ca').value.trim(),
           lat: point.lat, lng: point.lng, courts: Math.max(1, Math.min(60, +g('ck').value || 1)), surface: g('cs').value, indoor: g('cin').checked, lights: g('cli').checked,
-          phone: g('cph2').value.trim(), price: g('cpr').value.trim(), note: g('cno').value.trim(), checked: g('cok').checked, active: g('cac').checked });
+          phone: g('cph2').value.trim(), price: g('cpr').value.trim(), note: g('cno').value.trim(), checked: g('cok').checked, active: g('cac').checked,
+          ...(g('cve') ? { verified: g('cve').checked } : {}) });
         cState.region = g('crg2').value;
         close(); toast(L('Корт сохранён', 'Kort saqlandi')); done();
       } catch (err) { toast(err.message); } finally { btn.disabled = false; }
