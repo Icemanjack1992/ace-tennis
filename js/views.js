@@ -160,8 +160,8 @@ export const login = {
         <div class="muted mt" id="tgHint">${L('Откроется бот Ace Tennis: нажмите «Start» и «Поделиться номером». Потом вернитесь в это приложение — вход произойдёт сам.', 'Ace Tennis boti ochiladi: «Start» va «Raqamni yuborish» tugmalarini bosing. So‘ng shu ilovaga qayting — kirish o‘zi bo‘ladi.')}</div>
       </div>` : ''}
       <div class="card dark">
-        <div class="strong" style="font-size:17px">${L('Вы тренер по теннису?', 'Siz tennis murabbiyimisiz?')}</div>
-        <div class="sub mt" style="margin-top:6px">${L('Оставьте заявку — администратор свяжется с вами. После одобрения вы зарегистрируетесь и сразу получите профиль тренера.', 'Ariza qoldiring — administrator siz bilan bog‘lanadi. Tasdiqlangach, ro‘yxatdan o‘tib murabbiy profilini olasiz.')}</div>
+        <div class="strong" style="font-size:17px">${L('Вы тренер или владелец корта?', 'Siz murabbiy yoki kort egasimisiz?')}</div>
+        <div class="sub mt" style="margin-top:6px">${L('Тренеры получают профиль тренера, корты — страницу с онлайн-бронью, расписанием и отметкой «Проверенный». Оставьте заявку — администратор свяжется с вами.', 'Murabbiylar murabbiy profilini, kortlar esa onlayn bron, jadval va «Tasdiqlangan» belgisi bilan sahifa oladi. Ariza qoldiring — administrator siz bilan bog‘lanadi.')}</div>
         <button class="btn ball block mt" type="button" data-coach-req>${L('Оставить заявку тренера', 'Murabbiy arizasini qoldirish')}</button>
         <button class="btn ghost block mt" type="button" data-court-req style="background:transparent;color:#fff;border-color:rgba(255,255,255,.3)">${L('Зарегистрировать корт', 'Kortni ro‘yxatdan o‘tkazish')}</button>
       </div>
