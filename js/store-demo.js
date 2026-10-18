@@ -497,8 +497,10 @@ export class DemoStore {
     const r = (this.db.courtRequests || []).find((x) => x.id === id);
     if (!r || r.status !== 'new') throw new Error('Заявка не найдена');
     if (!approve) { r.status = 'rejected'; this.save(); return null; }
-    let c = courtId ? this.db.courts.find((x) => x.id === courtId) : null;
-    if (!c) { c = { id: uid(), region: r.region, city: r.city || '', name: r.venueName, address: r.address || '', lat: null, lng: null, courts: r.courtsCount || 1, surface: '', indoor: false, lights: false, phone: '+' + r.phone, price: '', note: '', checked: true, active: true }; this.db.courts.push(c); }
+    const cid = courtId || r.claimCourt;
+    let c = cid ? this.db.courts.find((x) => x.id === cid) : null;
+    if (c && c.lat == null && r.lat != null) Object.assign(c, { lat: r.lat, lng: r.lng });
+    if (!c) { c = { id: uid(), region: r.region, city: r.city || '', name: r.venueName, address: r.address || '', lat: r.lat ?? null, lng: r.lng ?? null, courts: r.courtsCount || 1, surface: '', indoor: false, lights: false, phone: '+' + r.phone, price: '', note: '', checked: true, active: true }; this.db.courts.push(c); }
     let u = this.db.users.find((x) => x.phone && x.phone.replace(/\D/g, '') === r.phone.replace(/\D/g, ''));
     if (!u) { u = newPlayer({ phone: '+' + r.phone, firstName: r.ownerName.split(' ')[0] || r.ownerName, lastName: r.ownerName.split(' ').slice(1).join(' '), region: r.region }); this.db.users.push(u); }
     this.db.courts.forEach((x) => { if (x.ownerId === u.id) x.ownerId = null; });

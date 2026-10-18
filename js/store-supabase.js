@@ -724,7 +724,7 @@ export class SupabaseStore {
   }
 
   // ---------- court accounts and booking (supabase/update-12.sql) ----------
-  async courtRequest({ ownerName, phone, venueName, region, city, address, courtsCount, about, termsVer, docs = [] }) {
+  async courtRequest({ ownerName, phone, venueName, region, city, address, courtsCount, about, termsVer, docs = [], claimCourt = null, lat = null, lng = null }) {
     const docPaths = [];
     for (const f of docs) {
       const path = `req/${fileId()}.jpg`;
@@ -732,13 +732,15 @@ export class SupabaseStore {
       docPaths.push(path);
     }
     const { error } = await this.sb.from('court_requests').insert({ owner_name: ownerName, phone, venue_name: venueName, region: region || '', city: city || '',
-      address: address || '', courts_count: Math.max(1, Math.min(60, +courtsCount || 1)), about: about || '', terms_ver: termsVer || '', doc_paths: docPaths });
+      address: address || '', courts_count: Math.max(1, Math.min(60, +courtsCount || 1)), about: about || '', terms_ver: termsVer || '', doc_paths: docPaths,
+      claim_court: claimCourt || null, lat: claimCourt ? null : lat, lng: claimCourt ? null : lng });
     if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'Заявка с этим номером уже отправлена — администратор свяжется с вами' : error.message);
   }
   async courtRequests() {
     return check(await this.sb.from('court_requests').select('*').order('created_at', { ascending: false }).limit(100)).map((r) => ({
       id: r.id, ownerName: r.owner_name, phone: r.phone, venueName: r.venue_name, region: r.region, city: r.city, address: r.address, courtsCount: r.courts_count,
-      about: r.about, docs: r.doc_paths || [], status: r.status, courtId: r.court_id, createdAt: r.created_at }));
+      about: r.about, docs: r.doc_paths || [], status: r.status, courtId: r.court_id, createdAt: r.created_at,
+      claimCourt: r.claim_court || null, lat: r.lat ?? null, lng: r.lng ?? null }));
   }
   async resolveCourtRequest(id, approve, courtId = null) { return check(await this.sb.rpc('resolve_court_request', { p_id: id, p_approve: !!approve, p_court: courtId || null })); }
   async court(id) {

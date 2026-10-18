@@ -18,8 +18,8 @@ const company = () => { const c = (window.ACE_CONFIG || {}).company; return c ? 
 
 const RU = () => [
   ['1. Что это за соглашение', [
-    `Это публичная оферта администрации сервиса Ace Tennis (сайт и приложение ace-tennis.uz)${company() ? `, оператор —${company()}` : ''}. Ставя отметку «Принимаю» при заполнении анкеты или заявки тренера, вы полностью принимаете эти условия (статьи 367 и 369 Гражданского кодекса Республики Узбекистан). Если вы не согласны — не пользуйтесь сервисом.`,
-    'Ace Tennis — бесплатная информационная платформа для любителей тенниса и тренеров: профиль, поиск соперников, учёт матчей и тренировок, рейтинг, турниры и новости.',
+    `Это публичная оферта администрации сервиса Ace Tennis (сайт и приложение ace-tennis.uz)${company() ? `, оператор —${company()}` : ''}. Ставя отметку «Принимаю» при заполнении анкеты, заявки тренера или заявки корта, вы полностью принимаете эти условия (статьи 367 и 369 Гражданского кодекса Республики Узбекистан). Если вы не согласны — не пользуйтесь сервисом.`,
+    'Ace Tennis — информационная платформа для любителей тенниса, тренеров и теннисных кортов: профиль, поиск соперников, учёт матчей и тренировок, рейтинг, турниры, новости и онлайн-бронь кортов.',
   ]],
   ['2. Регистрация и возраст', [
     'Пользоваться сервисом можно с 16 лет. Если вам меньше 18 лет, вы подтверждаете, что родители (законные представители) знают об этом и согласны с условиями.',
@@ -39,27 +39,35 @@ const RU = () => [
     'Занятия с детьми — только с согласия родителей (законных представителей).',
     'Отметка «тренер» означает только, что администрация связалась с вами. Это не гарантия квалификации для учеников.',
   ]],
-  ['6. Правила поведения', [
+  ['6. Для кортов и бронирования', [
+    'Корт (клуб, комплекс) — самостоятельное лицо, а не сотрудник или представитель Ace Tennis. Владелец или управляющий сам отвечает за состояние кортов, раздевалок и душевых, безопасность посетителей, правдивость фото, цен и описания, законность своей деятельности и уплату налогов.',
+    'Отметка «Проверенный корт» означает только, что администрация связалась с владельцем и проверила документы. Это не гарантия качества услуг.',
+    'Бронь — договорённость напрямую между игроком и кортом. Администрация не продаёт услуги корта, не принимает и не хранит деньги и не участвует в расчётах. При предоплате игрок переводит полную сумму на карту корта, которую корт указал сам, и прикрепляет скриншот чека; корт обязан проверить поступление и подтвердить или отклонить бронь.',
+    'Неоплаченная бронь картой снимается через 30 минут. Игрок может отменить бронь в приложении не позднее чем за 12 часов до игры. Деньги за оплаченную бронь возвращает корт — игрок связывается с ним по телефону, указанному в приложении. Позже 12 часов — отмена и возврат только по договорённости с кортом.',
+    'Корт обязуется отмечать в приложении брони, принятые по телефону или на месте, чтобы не было двойных броней, и не использовать телефоны игроков для рекламы и рассылок.',
+    'Отзывы о корте может оставить только игрок, который играл по брони. За неявки, ложные брони, фальшивые чеки или недобросовестное поведение администрация может ограничить аккаунт игрока или корта.',
+  ]],
+  ['7. Правила поведения', [
     'Записывайте только реально сыгранные матчи и честный счёт, уважайте соперников. Запрещены оскорбления, угрозы, спам, реклама без разрешения, чужие фото и выдуманные матчи.',
     'За нарушения администрация может снизить оценку Fair Play, отменить результаты, временно ограничить или заблокировать аккаунт.',
   ]],
-  ['7. Рейтинг, очки и награды', [
+  ['8. Рейтинг, очки и награды', [
     'Уровень силы, очки, лиги, кубки и титулы — игровые показатели. Они не имеют денежной стоимости и не являются призами. При ошибках или нарушениях администрация может их пересчитать.',
     'Призы спонсоров, если они есть, вручаются по условиям конкретного турнира.',
   ]],
-  ['8. Персональные данные', [
-    'Мы обрабатываем: имя, фамилию, фото, пол, год рождения, район, номер телефона, адрес почты, удобное время игры, результаты матчей и тренировок, отзывы и комментарии.',
-    'Цели: работа сервиса — поиск соперников, рейтинг, турниры, связь администрации с вами, безопасность. Другим пользователям видны имя, фото, район, уровень и статистика. Телефон и почту видит только администратор; телефон соперник видит только с вашего согласия.',
+  ['9. Персональные данные', [
+    'Мы обрабатываем: имя, фамилию, фото, пол, год рождения, район, номер телефона, адрес почты, удобное время игры, результаты матчей и тренировок, отзывы и комментарии, данные о бронях кортов и скриншоты чеков об оплате.',
+    'Цели: работа сервиса — поиск соперников, рейтинг, турниры, связь администрации с вами, безопасность. Другим пользователям видны имя, фото, район, уровень и статистика. Телефон и почту видит только администратор; телефон соперник видит только с вашего согласия. Когда вы бронируете корт, ваши имя и телефон получает этот корт — чтобы связаться с вами по брони; чек об оплате видят только этот корт и администрация.',
     'Данные хранятся у поставщика облачной базы данных (Supabase) на серверах за пределами Узбекистана. Принимая соглашение, вы даёте согласие на обработку ваших персональных данных и на их трансграничную передачу для этих целей (Закон Республики Узбекистан «О персональных данных»).',
     'Вы можете исправить данные в анкете в любой момент и сами удалить аккаунт: Профиль → «Удалить аккаунт» (или страница ace-tennis.uz/#/delete-account). Данные удаляются сразу, кроме записей о подтверждённых матчах с другими игроками, которые нужны для их рейтинга (без вашего имени).',
   ]],
-  ['9. Фото, комментарии и новости', [
+  ['10. Фото, комментарии и новости', [
     'Вы отвечаете за то, что публикуете, и разрешаете показывать это внутри приложения. Мировые новости — это заголовки и короткие анонсы со ссылкой на источник. Права на эти материалы принадлежат их авторам.',
   ]],
-  ['10. Ответственность', [
-    'Сервис бесплатный и работает «как есть». Возможны перерывы и ошибки. Администрация не отвечает за упущенную выгоду и косвенные убытки.',
+  ['11. Ответственность', [
+    'Сервис бесплатный для игроков и работает «как есть». Возможны перерывы и ошибки. Администрация не отвечает за упущенную выгоду и косвенные убытки.',
   ]],
-  ['11. Изменения и споры', [
+  ['12. Изменения и споры', [
     'Администрация может менять соглашение. О новой версии приложение сообщит, и её нужно будет принять заново.',
     `Действует законодательство Республики Узбекистан. Споры решаются переговорами${contact()}, а если договориться не удалось — в суде.`,
   ]],
@@ -67,8 +75,8 @@ const RU = () => [
 
 const UZ = () => [
   ['1. Bu qanday kelishuv', [
-    `Bu Ace Tennis xizmati (ace-tennis.uz sayti va ilovasi) ma’muriyatining ommaviy ofertasi${company() ? `, operator —${company()}` : ''}. Anketa yoki murabbiy arizasini to‘ldirishda «Qabul qilaman» belgisini qo‘yib, siz ushbu shartlarni to‘liq qabul qilasiz (O‘zbekiston Respublikasi Fuqarolik kodeksining 367 va 369-moddalari). Rozi bo‘lmasangiz, xizmatdan foydalanmang.`,
-    'Ace Tennis — tennis havaskorlari va murabbiylar uchun bepul axborot platformasi: profil, raqib qidirish, o‘yin va mashg‘ulotlar hisobi, reyting, turnirlar va yangiliklar.',
+    `Bu Ace Tennis xizmati (ace-tennis.uz sayti va ilovasi) ma’muriyatining ommaviy ofertasi${company() ? `, operator —${company()}` : ''}. Anketa, murabbiy yoki kort arizasini to‘ldirishda «Qabul qilaman» belgisini qo‘yib, siz ushbu shartlarni to‘liq qabul qilasiz (O‘zbekiston Respublikasi Fuqarolik kodeksining 367 va 369-moddalari). Rozi bo‘lmasangiz, xizmatdan foydalanmang.`,
+    'Ace Tennis — tennis havaskorlari, murabbiylar va tennis kortlari uchun axborot platformasi: profil, raqib qidirish, o‘yin va mashg‘ulotlar hisobi, reyting, turnirlar, yangiliklar va kortlarni onlayn bron qilish.',
   ]],
   ['2. Ro‘yxatdan o‘tish va yosh', [
     'Xizmatdan 16 yoshdan foydalanish mumkin. 18 yoshga to‘lmagan bo‘lsangiz, ota-onangiz (qonuniy vakillaringiz) bundan xabardor va shartlarga rozi ekanini tasdiqlaysiz.',
@@ -88,27 +96,35 @@ const UZ = () => [
     'Bolalar bilan mashg‘ulotlar — faqat ota-ona (qonuniy vakillar) roziligi bilan.',
     '«Murabbiy» belgisi faqat ma’muriyat siz bilan bog‘langanini bildiradi, o‘quvchilar uchun malaka kafolati emas.',
   ]],
-  ['6. Xulq-atvor qoidalari', [
+  ['6. Kortlar va bron qilish', [
+    'Kort (klub, majmua) — Ace Tennis xodimi yoki vakili emas, mustaqil shaxs. Egasi yoki boshqaruvchisi kortlar, yechinish xonalari va dushlar holati, tashrif buyuruvchilar xavfsizligi, rasm, narx va tavsifning to‘g‘riligi, faoliyatining qonuniyligi va soliqlar uchun o‘zi javob beradi.',
+    '«Tekshirilgan kort» belgisi faqat ma’muriyat kort egasi bilan bog‘lanib, hujjatlarini tekshirganini bildiradi. Bu xizmat sifati kafolati emas.',
+    'Bron — o‘yinchi va kort o‘rtasidagi bevosita kelishuv. Ma’muriyat kort xizmatlarini sotmaydi, pul qabul qilmaydi va saqlamaydi, hisob-kitobda qatnashmaydi. Oldindan to‘lovda o‘yinchi to‘liq summani kort o‘zi ko‘rsatgan kartaga o‘tkazadi va chek skrinshotini biriktiradi; kort tushumni tekshirib, bronni tasdiqlashi yoki rad etishi shart.',
+    'Karta orqali to‘lanmagan bron 30 daqiqadan so‘ng bekor bo‘ladi. O‘yinchi bronni ilovada o‘yindan kamida 12 soat oldin bekor qilishi mumkin. To‘langan bron pulini kort qaytaradi — o‘yinchi ilovada ko‘rsatilgan telefon orqali kort bilan bog‘lanadi. 12 soatdan kam qolganda bekor qilish va qaytarish faqat kort bilan kelishuv bo‘yicha.',
+    'Kort telefon yoki joyida qabul qilingan bronlarni ilovada belgilab borishi, ikki marta bron bo‘lishiga yo‘l qo‘ymasligi va o‘yinchilar telefonlarini reklama va xabarnomalar uchun ishlatmasligi shart.',
+    'Kort haqida faqat bron orqali o‘ynagan o‘yinchi fikr qoldira oladi. Kelmaslik, soxta bron, soxta chek yoki insofsiz xatti-harakat uchun ma’muriyat o‘yinchi yoki kort akkauntini cheklashi mumkin.',
+  ]],
+  ['7. Xulq-atvor qoidalari', [
     'Faqat haqiqatan o‘ynalgan o‘yinlar va halol hisobni yozing, raqiblarni hurmat qiling. Haqorat, tahdid, spam, ruxsatsiz reklama, begona rasmlar va to‘qima o‘yinlar taqiqlanadi.',
     'Qoidabuzarlik uchun ma’muriyat Fair Play bahosini pasaytirishi, natijalarni bekor qilishi, akkauntni vaqtincha cheklashi yoki bloklashi mumkin.',
   ]],
-  ['7. Reyting, ochkolar va mukofotlar', [
+  ['8. Reyting, ochkolar va mukofotlar', [
     'Kuch darajasi, ochkolar, ligalar, kuboklar va unvonlar — o‘yin ko‘rsatkichlari. Ularning pul qiymati yo‘q va ular sovrin emas. Xato yoki qoidabuzarlik bo‘lsa, ma’muriyat ularni qayta hisoblashi mumkin.',
     'Homiylar sovrinlari, agar bo‘lsa, aniq turnir shartlariga ko‘ra beriladi.',
   ]],
-  ['8. Shaxsiy ma’lumotlar', [
-    'Biz quyidagilarni qayta ishlaymiz: ism, familiya, rasm, jins, tug‘ilgan yil, tuman, telefon raqami, pochta manzili, qulay vaqt, o‘yin va mashg‘ulot natijalari, sharh va izohlar.',
-    'Maqsad: xizmat ishlashi — raqib qidirish, reyting, turnirlar, ma’muriyatning siz bilan aloqasi, xavfsizlik. Boshqa foydalanuvchilarga ism, rasm, tuman, daraja va statistika ko‘rinadi. Telefon va pochtani faqat administrator ko‘radi; raqib telefoningizni faqat roziligingiz bilan ko‘radi.',
+  ['9. Shaxsiy ma’lumotlar', [
+    'Biz quyidagilarni qayta ishlaymiz: ism, familiya, rasm, jins, tug‘ilgan yil, tuman, telefon raqami, pochta manzili, qulay vaqt, o‘yin va mashg‘ulot natijalari, sharh va izohlar, kort bronlari ma’lumotlari va to‘lov cheklari skrinshotlari.',
+    'Maqsad: xizmat ishlashi — raqib qidirish, reyting, turnirlar, ma’muriyatning siz bilan aloqasi, xavfsizlik. Boshqa foydalanuvchilarga ism, rasm, tuman, daraja va statistika ko‘rinadi. Telefon va pochtani faqat administrator ko‘radi; raqib telefoningizni faqat roziligingiz bilan ko‘radi. Kortni bron qilganingizda ismingiz va telefoningiz shu kortga beriladi — bron bo‘yicha siz bilan bog‘lanish uchun; to‘lov chekini faqat shu kort va ma’muriyat ko‘radi.',
     'Ma’lumotlar bulutli ma’lumotlar bazasi yetkazib beruvchisida (Supabase) O‘zbekistondan tashqaridagi serverlarda saqlanadi. Kelishuvni qabul qilib, siz shaxsiy ma’lumotlaringizni shu maqsadlarda qayta ishlash va transchegaraviy uzatishga rozilik berasiz («Shaxsga doir ma’lumotlar to‘g‘risida»gi O‘zbekiston Respublikasi Qonuni).',
     'Ma’lumotlarni anketada istalgan vaqtda o‘zgartirishingiz va akkauntni o‘zingiz o‘chirishingiz mumkin: Profil → «Akkauntni o‘chirish» (yoki ace-tennis.uz/#/delete-account sahifasi). Boshqa o‘yinchilar reytingi uchun kerak bo‘lgan tasdiqlangan o‘yin yozuvlaridan tashqari (ismingizsiz) ma’lumotlar darhol o‘chiriladi.',
   ]],
-  ['9. Rasmlar, izohlar va yangiliklar', [
+  ['10. Rasmlar, izohlar va yangiliklar', [
     'E’lon qilgan narsangiz uchun o‘zingiz javobgarsiz va uni ilova ichida ko‘rsatishga ruxsat berasiz. Jahon yangiliklari — manbaga havola bilan sarlavha va qisqa annotatsiyalar, ularga huquqlar mualliflarga tegishli.',
   ]],
-  ['10. Javobgarlik', [
-    'Xizmat bepul va «boricha» ishlaydi, uzilishlar va xatolar bo‘lishi mumkin. Ma’muriyat boy berilgan foyda va bilvosita zararlar uchun javob bermaydi.',
+  ['11. Javobgarlik', [
+    'Xizmat o‘yinchilar uchun bepul va «boricha» ishlaydi, uzilishlar va xatolar bo‘lishi mumkin. Ma’muriyat boy berilgan foyda va bilvosita zararlar uchun javob bermaydi.',
   ]],
-  ['11. O‘zgarishlar va nizolar', [
+  ['12. O‘zgarishlar va nizolar', [
     'Ma’muriyat kelishuvni o‘zgartirishi mumkin. Yangi versiya haqida ilova xabar beradi va uni qaytadan qabul qilish kerak bo‘ladi.',
     `O‘zbekiston Respublikasi qonunchiligi amal qiladi. Nizolar muzokaralar yo‘li bilan${contact()}, kelishilmasa — sudda hal qilinadi.`,
   ]],

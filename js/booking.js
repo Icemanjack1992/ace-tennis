@@ -617,6 +617,12 @@ export function courtRequestSheet(store) {
       <div class="grid2"><div><label class="f" for="qrg">${L('Область', 'Viloyat')}*</label><select id="qrg" class="input" required><option value="">—</option>${REGIONS.map((r) => `<option value="${r.code}">${esc(L(r.ru, r.uz))}</option>`).join('')}</select></div>
         <div><label class="f" for="qc">${L('Город / район', 'Shahar / tuman')}</label><input id="qc" class="input" maxlength="80"></div></div>
       <label class="f" for="qa">${L('Адрес, ориентир', 'Manzil, mo‘ljal')}</label><input id="qa" class="input" maxlength="200">
+      <label class="f">${L('Ваш корт на карте', 'Kortingiz xaritada')}*</label>
+      <div class="muted small">${L('Если ваш корт уже есть на карте — нажмите на его метку. Если нет — нажмите на место корта, и мы поставим новую метку.', 'Kortingiz xaritada bo‘lsa — belgisini bosing. Bo‘lmasa — kort joyini bosing, yangi belgi qo‘yamiz.')}</div>
+      <div id="qmap" style="height:260px;border-radius:14px;overflow:hidden;border:1px solid var(--line);margin-top:8px;background:#e8ece4"><div class="muted center" style="padding:40px 16px">${L('Сначала выберите область', 'Avval viloyatni tanlang')}</div></div>
+      <select id="qpick" class="input mt" disabled><option value="">${L('…или выберите корт из списка', '…yoki ro‘yxatdan tanlang')}</option></select>
+      <button type="button" class="btn ghost sm block mt" id="qgps">${L('Я сейчас на корте — поставить точку здесь', 'Hozir kortdaman — nuqtani shu yerga qo‘yish')}</button>
+      <div id="qsel" class="small strong mt" style="min-height:20px"></div>
       <label class="f" for="qk">${L('Сколько кортов', 'Nechta kort')}</label><input id="qk" class="input" type="number" min="1" max="60" value="1">
       <label class="f" for="qn">${L('Ваше имя (владелец или управляющий)', 'Ismingiz (egasi yoki boshqaruvchi)')}*</label><input id="qn" class="input" required maxlength="80">
       <label class="f" for="qph">${L('Номер телефона', 'Telefon raqami')}*</label><input id="qph" class="input" type="tel" inputmode="tel" value="+998 " required>
@@ -630,6 +636,60 @@ export function courtRequestSheet(store) {
     </form>`, (el, close) => {
     bindTerms(el);
     const docs = [];
+    // map: pick an existing court of the region or put a new point
+    const loc = { courtId: '', point: null }; let mm = null, newMarker = null, list = [], markers = [];
+    const qsel = el.querySelector('#qsel'), qpick = el.querySelector('#qpick');
+    const showSel = () => {
+      const c = list.find((x) => x.id === loc.courtId);
+      qsel.innerHTML = c ? `✓ ${L('Выбран корт', 'Tanlangan kort')}: ${esc(c.name)}${c.city ? ' — ' + esc(c.city) : ''}`
+        : loc.point ? `✓ ${L('Новая метка', 'Yangi belgi')}: ${loc.point.lat.toFixed(5)}, ${loc.point.lng.toFixed(5)}` : '';
+      qpick.value = loc.courtId;
+      markers.forEach(([id, m]) => m.setIcon(pin(mm.Lf, id === loc.courtId)));
+    };
+    const pickCourt = (id) => {
+      loc.courtId = id; loc.point = null;
+      if (newMarker) { newMarker.remove(); newMarker = null; }
+      const c = list.find((x) => x.id === id);
+      if (c && mm && hasPoint(c)) mm.map.setView([c.lat, c.lng], 16);
+      if (c && !el.querySelector('#qv').value.trim()) el.querySelector('#qv').value = c.name;
+      showSel();
+    };
+    const putPoint = (p, move = false) => {
+      loc.point = p; loc.courtId = '';
+      if (mm) {
+        if (newMarker) newMarker.setLatLng([p.lat, p.lng]);
+        else newMarker = mm.Lf.marker([p.lat, p.lng], { icon: pin(mm.Lf, true), draggable: true }).addTo(mm.map).on('dragend', () => { const ll = newMarker.getLatLng(); loc.point = { lat: ll.lat, lng: ll.lng }; showSel(); });
+        if (move) mm.map.setView([p.lat, p.lng], 16);
+      }
+      showSel();
+    };
+    el.querySelector('#qrg').addEventListener('change', async (e) => {
+      const rg = e.target.value; loc.courtId = ''; loc.point = null; newMarker = null; markers = []; showSel();
+      list = rg ? await store.courts(rg).catch(() => []) : [];
+      qpick.disabled = !list.length;
+      qpick.innerHTML = `<option value="">${list.length ? L('…или выберите корт из списка', '…yoki ro‘yxatdan tanlang') : L('В этой области кортов пока нет — поставьте метку', 'Bu viloyatda hali kort yo‘q — belgi qo‘ying')}</option>`
+        + list.map((c) => `<option value="${c.id}">${esc(c.name)}${c.city ? ' — ' + esc(c.city) : ''}${c.ownerId ? ' · ' + L('уже есть владелец', 'egasi bor') : ''}</option>`).join('');
+      const box = el.querySelector('#qmap');
+      if (mm) { mm.map.remove(); mm = null; }
+      box.innerHTML = '';
+      if (!rg) { box.innerHTML = `<div class="muted center" style="padding:40px 16px">${L('Сначала выберите область', 'Avval viloyatni tanlang')}</div>`; return; }
+      try {
+        mm = await makeMap(box, CENTER[rg] || [41.3, 69.3], 12);
+        setTimeout(() => mm.map.invalidateSize(), 250);
+        list.filter(hasPoint).forEach((c) => {
+          const m = mm.Lf.marker([c.lat, c.lng], { icon: pin(mm.Lf, false) }).addTo(mm.map).bindTooltip(esc(c.name)).on('click', () => pickCourt(c.id));
+          markers.push([c.id, m]);
+        });
+        mm.map.on('click', (ev) => putPoint({ lat: ev.latlng.lat, lng: ev.latlng.lng }));
+      } catch { box.innerHTML = `<div class="muted center" style="padding:40px 16px">${L('Карта не загрузилась — выберите корт из списка или нажмите «Я сейчас на корте»', 'Xarita yuklanmadi — ro‘yxatdan tanlang yoki «Hozir kortdaman»ni bosing')}</div>`; }
+    });
+    qpick.addEventListener('change', () => { if (qpick.value) pickCourt(qpick.value); else { loc.courtId = ''; showSel(); } });
+    el.querySelector('#qgps').addEventListener('click', (e) => {
+      if (!navigator.geolocation) { toast(L('Телефон не даёт определить место', 'Telefon joylashuvni aniqlay olmaydi')); return; }
+      const btn = e.currentTarget; btn.disabled = true;
+      navigator.geolocation.getCurrentPosition((p) => { btn.disabled = false; putPoint({ lat: p.coords.latitude, lng: p.coords.longitude }, true); toast(L('Точка поставлена', 'Nuqta qo‘yildi')); },
+        () => { btn.disabled = false; toast(L('Разрешите доступ к геолокации', 'Joylashuvga ruxsat bering')); }, { enableHighAccuracy: true, timeout: 15000 });
+    });
     el.querySelector('#qdoc').addEventListener('change', async (e) => {
       for (const f of [...e.target.files].slice(0, 3 - docs.length)) {
         const url = await resizeImage(f, 1600);
@@ -646,9 +706,11 @@ export function courtRequestSheet(store) {
       if (!v('qrg')) { toast(L('Выберите область', 'Viloyatni tanlang')); return; }
       const phone = normPhone(v('qph'));
       if (!phone) { toast(L('Введите номер в формате +998 90 123 45 67', 'Raqamni +998 90 123 45 67 shaklida kiriting')); return; }
+      if (!loc.courtId && !loc.point) { toast(L('Отметьте корт на карте: нажмите на его метку или на место корта', 'Kortni xaritada belgilang')); el.querySelector('#qmap').scrollIntoView({ block: 'center' }); return; }
       if (!docs.length) { toast(L('Добавьте фото документа', 'Hujjat rasmini qo‘shing')); return; }
       act(el.querySelector('#qSend'), async () => {
-        await store.courtRequest({ ownerName: v('qn'), phone, venueName: v('qv'), region: v('qrg'), city: v('qc'), address: v('qa'), courtsCount: +v('qk') || 1, about: v('qab'), termsVer: TERMS_VERSION, docs });
+        await store.courtRequest({ ownerName: v('qn'), phone, venueName: v('qv'), region: v('qrg'), city: v('qc'), address: v('qa'), courtsCount: +v('qk') || 1, about: v('qab'), termsVer: TERMS_VERSION, docs,
+          claimCourt: loc.courtId || null, lat: loc.point?.lat ?? null, lng: loc.point?.lng ?? null });
         close();
         sheet(`<h2 class="h">${L('Заявка отправлена', 'Ariza yuborildi')}</h2>
           <div>${L('Администратор проверит документ и позвонит вам. После одобрения нажмите «Регистрация» и в анкете укажите этот же номер телефона — кабинет корта включится автоматически.', 'Administrator qo‘ng‘iroq qiladi. Tasdiqlangach «Ro‘yxatdan o‘tish»ni bosing va anketada shu raqamni kiriting — kort kabineti avtomatik yoqiladi.')}</div>
@@ -669,7 +731,9 @@ export async function adminCourtRequests(store, region = '') {
       <div class="small">${esc(r.ownerName)} · <a href="tel:+${esc(r.phone)}">+${esc(r.phone)}</a></div>${r.about ? `<div class="small muted">${esc(r.about)}</div>` : ''}
       ${r.docs?.length ? `<button class="btn ghost sm mt" data-qdocs="${r.id}">${L('Документы', 'Hujjatlar')} (${r.docs.length})</button>` : ''}
       <label class="f">${L('Это корт из списка?', 'Ro‘yxatdagi kortmi?')}</label>
-      <select class="input" data-qcourt="${r.id}"><option value="">${L('Новый корт (создать)', 'Yangi kort (yaratish)')}</option>${courts.filter((c) => c.region === r.region).map((c) => `<option value="${c.id}">${esc(c.name)}${c.city ? ' — ' + esc(c.city) : ''}${c.ownerId ? ' (' + L('есть владелец', 'egasi bor') + ')' : ''}</option>`).join('')}</select>
+      ${r.lat != null ? `<div class="small mt">📍 ${L('Новая метка', 'Yangi belgi')}: <a href="${esc(yandexLink({ lat: r.lat, lng: r.lng }))}" target="_blank" rel="noopener">${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}</a></div>` : ''}
+      ${r.claimCourt ? `<div class="small mt strong">📍 ${L('Владелец выбрал корт на карте', 'Egasi xaritadan kort tanladi')}</div>` : ''}
+      <select class="input" data-qcourt="${r.id}"><option value="">${L('Новый корт (создать)', 'Yangi kort (yaratish)')}</option>${courts.filter((c) => c.region === r.region).map((c) => `<option value="${c.id}" ${c.id === r.claimCourt ? 'selected' : ''}>${esc(c.name)}${c.city ? ' — ' + esc(c.city) : ''}${c.ownerId ? ' (' + L('есть владелец', 'egasi bor') + ')' : ''}</option>`).join('')}</select>
       <div class="grid2 mt"><button class="btn ghost sm" data-qno="${r.id}">${L('Отклонить', 'Rad etish')}</button><button class="btn ball sm" data-qyes="${r.id}">${L('Одобрить', 'Tasdiqlash')}</button></div></div>`).join('')}</div>`;
 }
 export function bindAdminCourtRequests(root, store, done) {

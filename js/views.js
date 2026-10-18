@@ -126,7 +126,7 @@ export const deleteAccountPage = {
 };
 export const termsCheck = (id, checked = false) => `<label class="row mt small" style="gap:10px;align-items:flex-start;cursor:pointer">
   <input type="checkbox" id="${id}" ${checked ? 'checked' : ''} required style="width:22px;height:22px;flex-shrink:0;margin:0;accent-color:var(--court)">
-  <span>${L('Я прочитал(а) и принимаю', 'O‘qidim va qabul qilaman:')} <button type="button" class="linkbtn" data-terms style="all:unset;text-decoration:underline;font-weight:800;cursor:pointer">${L('Пользовательское соглашение', 'Foydalanuvchi kelishuvi')}</button>${L(', в том числе согласие на обработку персональных данных и условия для тренеров', ', shu jumladan shaxsiy ma’lumotlarni qayta ishlashga rozilik va murabbiylar uchun shartlar')}</span></label>`;
+  <span>${L('Я прочитал(а) и принимаю', 'O‘qidim va qabul qilaman:')} <button type="button" class="linkbtn" data-terms style="all:unset;text-decoration:underline;font-weight:800;cursor:pointer">${L('Пользовательское соглашение', 'Foydalanuvchi kelishuvi')}</button>${L(', в том числе согласие на обработку персональных данных и условия для тренеров и кортов', ', shu jumladan shaxsiy ma’lumotlarni qayta ishlashga rozilik, murabbiylar va kortlar uchun shartlar')}</span></label>`;
 export const bindTerms = (root) => root.querySelectorAll('[data-terms]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); termsSheet(); }));
 
 export const login = {
