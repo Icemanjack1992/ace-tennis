@@ -80,13 +80,13 @@ const USERS_TTL = 3 * 60e3;  // profiles of my region: only changes are download
 const FULL_TTL = 24 * 3600e3; // once a day the region list is downloaded in full
 const PENDING_TTL = 30e3;    // "waiting for my confirmation" gate
 const CACHED = ['adminContacts', 'adminUsers', 'supportThreads', 'supportThread', 'supportMine', 'supportUnread', 'coachRequests', 'contacts', 'ranking', 'leaders', 'fairplayRanking', 'achievements', 'suggestOpponent', 'challenges', 'outgoing', 'history',
-  'coachStats', 'canReview', 'courts', 'court', 'courtReviews', 'courtRequests', 'myCourt', 'coachRanking', 'ratedFairplay', 'complaints', 'disputes', 'tournaments', 'tournament', 'news', 'worldNews', 'stats'];
+  'coachStats', 'canReview', 'courts', 'court', 'courtReviews', 'courtRequests', 'myCourt', 'adminCoachStats', 'adminCourtStats', 'coachRanking', 'ratedFairplay', 'complaints', 'disputes', 'tournaments', 'tournament', 'news', 'worldNews', 'stats'];
 const MUTATIONS = ['saveCourt', 'setCoach', 'supportSend', 'supportReply', 'supportRead', 'resolveCoachRequest', 'sharePhone', 'saveProfile', 'createMatch', 'createTraining', 'confirm', 'dispute', 'cancelOwn', 'createChallenge', 'answerChallenge',
   'addReview', 'rateFairplay', 'complain', 'resolveComplaint', 'resolveDispute', 'setBan', 'applyTournament', 'createTournament',
   'approveEntry', 'startTournament', 'createTournamentMatch', 'addNews', 'deleteNews', 'addComment', 'hideComment', 'inviteCoach',
-  'resolveCourtRequest', 'saveMyCourt', 'bookCourt', 'attachReceipt', 'cancelBooking', 'courtAction', 'courtBlock', 'reviewCourt'];
+  'resolveCourtRequest', 'saveMyCourt', 'bookCourt', 'attachReceipt', 'cancelBooking', 'courtAction', 'courtBlock', 'reviewCourt', 'adminDeleteAccount', 'adminDeleteCourt'];
 // These change ratings / profiles, so the profile list is reloaded too
-const PROFILE_MUTATIONS = new Set(['setCoach', 'resolveCoachRequest', 'resolveCourtRequest', 'saveProfile', 'confirm', 'rateFairplay', 'resolveComplaint', 'resolveDispute', 'setBan', 'createTournamentMatch', 'inviteCoach']);
+const PROFILE_MUTATIONS = new Set(['setCoach', 'resolveCoachRequest', 'resolveCourtRequest', 'saveProfile', 'confirm', 'rateFairplay', 'resolveComplaint', 'resolveDispute', 'setBan', 'createTournamentMatch', 'inviteCoach', 'adminDeleteAccount', 'adminDeleteCourt']);
 // Telegram login nonce lives 15 minutes; localStorage survives iPhone reloading the app while you are in Telegram
 const TG_KEY = 'ace_tg_login';
 const tgRead = () => { try { const v = JSON.parse(localStorage.getItem(TG_KEY) || 'null'); return v && Date.now() - v.t < 15 * 60e3 ? v : null; } catch { return null; } };
@@ -274,6 +274,8 @@ export class SupabaseStore {
       if (this.meCache) this.meCache.phone = phone.data || '';
       this.usersAt = Date.now();
       this.saveSnap();
+      // "last seen" for the administrator — at most every 10 minutes
+      if (this.meCache && Date.now() - (this.seenAt || 0) > 600e3) { this.seenAt = Date.now(); this.sb.rpc('touch_seen').then(() => {}, () => {}); }
       // switching accounts is only for the administrator (and the accounts he keeps next to his own on this phone)
       if (this.meCache && !(this.meCache.role === 'admin' || accList().some((a) => a.role === 'admin'))) accWrite([]);
       else if (this.meCache) accUpsert({ id: myId, email: s.session.user.email || '', name: [this.meCache.firstName, this.meCache.lastName].filter(Boolean).join(' '), role: this.meCache.role }, s.session);
@@ -316,6 +318,11 @@ export class SupabaseStore {
     const { error } = await tmp.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
     if (error) throw new Error(authError(error.message));
   }
+  // Admin: activity of coaches and courts, deleting
+  async adminCoachStats(region = '') { return check(await this.sb.rpc('admin_coach_stats', { p_region: region || '' })) || []; }
+  async adminCourtStats(region = '') { return check(await this.sb.rpc('admin_court_stats', { p_region: region || '' })) || []; }
+  async adminDeleteAccount(userId) { check(await this.sb.rpc('admin_delete_account', { p_user: userId })); }
+  async adminDeleteCourt(courtId, withOwner = false) { check(await this.sb.rpc('admin_delete_court', { p_court: courtId, p_with_owner: !!withOwner })); }
   // After every sign-in: an approved coach / court request for my e-mail switches the account
   async claimInvite() { try { await this.sb.rpc('claim_my_invite'); } catch { /* not critical */ } }
   // Registration with a code: the letter proves the address exists and belongs to the user,

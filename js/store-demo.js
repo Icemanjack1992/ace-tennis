@@ -616,6 +616,48 @@ export class DemoStore {
   async savePushSub() {}
   async deletePushSub() {}
   async sendInviteCode() {}
+  async adminCoachStats(region = '') {
+    const tr = this.db.trainings || []; const rv = this.db.reviews || [];
+    return clone(this.db.users.filter((u) => u.role === 'coach' && (!region || u.region === region)).map((u) => {
+      const mine = tr.filter((t) => t.coachId === u.id && t.status === 'confirmed'); const m30 = mine.filter((t) => Date.now() - new Date(t.playedAt) < 30 * 864e5);
+      const rs = rv.filter((r) => r.coachId === u.id);
+      const last = mine.map((t) => t.playedAt).sort().pop() || null;
+      return { id: u.id, firstName: u.firstName, lastName: u.lastName, photo: u.photo, phone: u.phone, email: '', region: u.region, pro: !!u.coachPro, price: u.coach?.price,
+        joinedAt: u.createdAt, lastSeen: last, lastSignIn: null, students: new Set(mine.map((t) => t.playerId)).size, trainings: mine.length, trainings30: m30.length,
+        hours30: m30.reduce((s, t) => s + (+t.hours || 0), 0), pending: tr.filter((t) => t.coachId === u.id && t.status === 'pending').length, lastTraining: last,
+        reviews: rs.length, avg: rs.length ? Math.round(rs.reduce((s, r) => s + r.stars, 0) / rs.length * 10) / 10 : null, lastActive: last };
+    }));
+  }
+  async adminCourtStats(region = '') {
+    const bs = this.db.bookings || []; const now = Date.now(); const d30 = 30 * 864e5;
+    return clone(this.db.courts.filter((c) => c.ownerId && (!region || c.region === region)).map((c) => {
+      const o = this.db.users.find((u) => u.id === c.ownerId) || {}; const my = bs.filter((b) => b.courtId === c.id);
+      const done = my.filter((b) => b.kind === 'app' && ['confirmed', 'cash'].includes(b.status) && new Date(b.start) < now && now - new Date(b.start) < d30);
+      const last = my.map((b) => b.createdAt).sort().pop() || null;
+      return { id: c.id, name: c.name, city: c.city, region: c.region, verified: !!c.verified, bookingOn: !!c.bookingOn, active: c.active !== false, units: c.courts,
+        photos: (c.photos?.court || []).length, hasPrices: !!(c.priceRules || []).length, rating: c.ratingCount ? Math.round(c.ratingSum / c.ratingCount * 10) / 10 : null, ratingCount: c.ratingCount || 0,
+        ownerId: c.ownerId, ownerName: [o.firstName, o.lastName].filter(Boolean).join(' '), ownerPhone: o.phone, ownerEmail: '', lastSeen: last, lastSignIn: null,
+        app30: my.filter((b) => b.kind === 'app' && now - new Date(b.createdAt) < d30).length, done30: done.length,
+        offline30: my.filter((b) => b.kind === 'offline' && now - new Date(b.createdAt) < d30).length,
+        cancelled30: my.filter((b) => ['cancelled', 'declined', 'expired'].includes(b.status)).length, revenue30: done.reduce((s, b) => s + (b.price || 0), 0),
+        upcoming: my.filter((b) => ['cash', 'await_pay', 'paid', 'confirmed', 'blocked'].includes(b.status) && new Date(b.start) > now).length,
+        toCheck: my.filter((b) => b.status === 'paid').length, lastBooking: last, lastActive: last };
+    }));
+  }
+  async adminDeleteAccount(userId) {
+    const u = this.db.users.find((x) => x.id === userId); if (!u) throw new Error('Не найден'); if (u.role === 'admin') throw new Error('Аккаунт администратора удалить нельзя');
+    this.db.courts.forEach((c) => { if (c.ownerId === userId) { c.ownerId = null; c.bookingOn = false; } });
+    Object.assign(u, { role: 'player', firstName: 'Удалённый', lastName: 'игрок', photo: null, phone: '', coach: null, coachPro: false, deleted: true, region: '' });
+    this.save();
+  }
+  async adminDeleteCourt(courtId, withOwner = false) {
+    const c = this.db.courts.find((x) => x.id === courtId); if (!c) throw new Error('Корт не найден');
+    const own = c.ownerId;
+    this.db.courts = this.db.courts.filter((x) => x.id !== courtId);
+    this.db.bookings = (this.db.bookings || []).filter((b) => b.courtId !== courtId);
+    if (own) { if (withOwner) await this.adminDeleteAccount(own); else { const u = this.db.users.find((x) => x.id === own); if (u && u.role === 'court') u.role = 'player'; } }
+    this.save();
+  }
   async coachRequests() { return clone(this.db.coachRequests || []); }
   async resolveCoachRequest(id, approve, region = null) {
     const r = (this.db.coachRequests || []).find((x) => x.id === id);

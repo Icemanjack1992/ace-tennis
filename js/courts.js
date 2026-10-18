@@ -179,7 +179,14 @@ function courtSheet(store, c, done) {
       ${chk('cok', v.checked, L('Данные проверены', 'Ma’lumot tekshirilgan'))}${chk('cac', v.active, L('Показывать игрокам', 'O‘yinchilarga ko‘rsatish'))}
       ${v.ownerId ? chk('cve', v.verified, L('«Проверенный корт» (у корта есть аккаунт)', '«Tekshirilgan kort» (kortning akkaunti bor)')) : ''}
       <div class="grid2 mt"><button type="button" class="btn ghost" data-close>${L('Отмена', 'Bekor')}</button><button class="btn ball" id="cSave">${L('Сохранить', 'Saqlash')}</button></div>
+      ${c.id && store.adminDeleteCourt ? `<button type="button" class="btn danger block mt" id="cDel">${L('Удалить корт', 'Kortni o‘chirish')}</button>` : ''}
     </form>`, async (el, close) => {
+    el.querySelector('#cDel')?.addEventListener('click', async (e) => {
+      const b = e.currentTarget;
+      if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = L('Точно удалить? Брони и отзывы тоже удалятся — нажмите ещё раз', 'Aniqmi? Yana bosing'); return; }
+      b.disabled = true;
+      try { await store.adminDeleteCourt(c.id, false); close(); toast(L('Корт удалён', 'Kort o‘chirildi')); done(); } catch (err) { toast(err.message); b.disabled = false; }
+    });
     let point = hasPoint(v) ? { lat: +v.lat, lng: +v.lng } : null;
     let marker = null; let mm = null;
     const xy = el.querySelector('#cxy');
