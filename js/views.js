@@ -6,7 +6,7 @@ import { termsHtml, termsTitle, operatorHtml } from './terms.js';
 import { REGIONS, region, regionShort, districtName, regionOf } from './regions.js';
 import { courtLine, courtSelect, EQUIPMENT, equipmentName, adminCourts } from './courts.js';
 import { shareSheet } from './share.js';
-import { courtRequestSheet, homeBookings, adminCourtRequests, bindAdminCourtRequests } from './booking.js';
+import { courtRequestSheet, homeBookings, adminCourtRequests, bindAdminCourtRequests, pushCard, bindPush } from './booking.js';
 import { formatStrength, LEAGUES, fairplay, formatSets, winnerFromSets, FAIRPLAY_MIN_FOR_TOURNAMENT, seasonParts } from './rating.js';
 
 const rerender = () => window.dispatchEvent(new Event('ace:rerender'));
@@ -1563,7 +1563,7 @@ export const admin = {
   async render(params, store) {
     const tab = params[0] || 'overview';
     const s0 = await store.stats('');
-    const courtReqN = (await store.courtRequests().catch(() => [])).filter((r) => r.status === 'new').length;
+    const courtReqN = s0.courtRequests ?? (await store.courtRequests().catch(() => [])).filter((r) => r.status === 'new').length;
     const tabs = [['support', L('Обращения', 'Murojaatlar'), s0.support, '💬', L('вопросы и сообщения людей', 'savollar va xabarlar')],
       ['complaints', L('Жалобы и споры', 'Shikoyat va nizolar'), s0.openComplaints + s0.disputes, '⚠️', L('жалобы на игроков, оспоренные счета', 'shikoyatlar, e’tirozli hisoblar')],
       ['coaches', L('Тренеры', 'Murabbiylar'), s0.coachRequests, '🎾', L('заявки, активность, удаление', 'arizalar, faollik')],
@@ -1581,7 +1581,7 @@ export const admin = {
       const todo = [[s0.support, L('обращений без ответа', 'javobsiz murojaat'), '#/admin/support'], [s0.openComplaints + s0.disputes, L('жалоб и споров', 'shikoyat va nizo'), '#/admin/complaints'], [s0.coachRequests, L('заявок тренеров', 'murabbiy arizasi'), '#/admin/coaches']].filter(([n]) => n > 0);
       const byR = Object.entries(s0.byRegion || {}).sort((a, b) => b[1] - a[1]);
       void todo;
-      body = `<div class="grid2" style="gap:10px">${tabs.map(([k, l, n, ic, sub]) => `<a href="#/admin/${k}" class="card" style="margin:0;text-decoration:none;color:inherit;position:relative;min-height:112px;display:flex;flex-direction:column;gap:6px;${n ? 'border:2px solid var(--ball)' : ''}">
+      body = `${await pushCard(L('Заявки тренеров и кортов, обращения, жалобы и споры будут приходить на телефон сразу.', 'Arizalar, murojaatlar va shikoyatlar telefonga darhol keladi.'))}<div class="grid2" style="gap:10px">${tabs.map(([k, l, n, ic, sub]) => `<a href="#/admin/${k}" class="card" style="margin:0;text-decoration:none;color:inherit;position:relative;min-height:112px;display:flex;flex-direction:column;gap:6px;${n ? 'border:2px solid var(--ball)' : ''}">
           <span style="font-size:26px;line-height:1">${ic}</span><span class="strong" style="font-size:16px">${l}</span><span class="muted small">${sub}</span>
           ${n ? `<span class="tag bad" style="position:absolute;top:12px;right:12px;font-size:13px">${n}</span>` : ''}</a>`).join('')}</div>
         <h2 class="h" style="margin:22px 2px 4px">${L('Статистика', 'Statistika')}</h2>
@@ -1715,6 +1715,7 @@ export const admin = {
   mount(root, params, store) {
     if (params[0] === 'courts') { adminCourts.bind(root, store, rerender); bindAdminCourtRequests(root, store, rerender); }
     root.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
+    bindPush(root, store);
     root.querySelectorAll('[data-delcoach]').forEach((b) => b.addEventListener('click', () => {
       const [id, name] = [b.dataset.delcoach, b.dataset.name];
       sheet(`<h2 class="h">${L('Удалить тренера?', 'Murabbiyni o‘chirish?')}</h2>

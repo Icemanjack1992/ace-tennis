@@ -508,7 +508,7 @@ export class SupabaseStore {
     check(await this.sb.rpc(kind === 'match' ? 'confirm_match' : 'confirm_training', kind === 'match' ? { p_match: id } : { p_training: id }));
     this.pendingLast = null; await this.refresh(true);
   }
-  async dispute(kind, id, reason) { check(await this.sb.rpc('dispute_record', { p_kind: kind, p_id: id, p_reason: reason })); }
+  async dispute(kind, id, reason) { check(await this.sb.rpc('dispute_record', { p_kind: kind, p_id: id, p_reason: reason })); if (kind === 'match') this.notify('adm_dispute', id); }
   async cancelOwn(kind, id) { check(await this.sb.rpc('cancel_own', { p_kind: kind, p_id: id })); }
   async history(userId) {
     const [mr, tr] = await Promise.all([
@@ -633,6 +633,7 @@ export class SupabaseStore {
   }
   async complain({ targetId, reason, refId }) {
     check(await this.sb.from('complaints').insert({ author_id: this.uid(), target_id: targetId, reason, ref_id: refId || null }));
+    this.notify('adm_complaint', this.uid());
   }
   async complaints() {
     const rows = check(await this.sb.from('complaints').select('*').order('created_at', { ascending: false }).limit(200));
@@ -715,8 +716,10 @@ export class SupabaseStore {
       check(await this.sb.storage.from('coach-docs').upload(path, f, { contentType: 'image/jpeg' }));
       docPaths.push(path);
     }
-    const { error } = await this.sb.from('coach_requests').insert({ first_name: firstName, last_name: lastName, phone, experience: experience || null, about: about || '', terms_ver: termsVer || '', region: region || '', doc_paths: docPaths, email: (email || '').toLowerCase() });
+    const id = crypto.randomUUID ? crypto.randomUUID() : null;
+    const { error } = await this.sb.from('coach_requests').insert({ ...(id ? { id } : {}), first_name: firstName, last_name: lastName, phone, experience: experience || null, about: about || '', terms_ver: termsVer || '', region: region || '', doc_paths: docPaths, email: (email || '').toLowerCase() });
     if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'Заявка с этим номером уже отправлена — администратор свяжется с вами' : error.message);
+    if (id) this.notify('adm_coach_req', id);
   }
   async coachRequests() {
     return check(await this.sb.from('coach_requests').select('*').order('created_at', { ascending: false }).limit(100)).map((r) => ({
@@ -752,10 +755,12 @@ export class SupabaseStore {
       check(await this.sb.storage.from('coach-docs').upload(path, f, { contentType: 'image/jpeg' }));
       docPaths.push(path);
     }
-    const { error } = await this.sb.from('court_requests').insert({ owner_name: ownerName, phone, venue_name: venueName, region: region || '', city: city || '',
+    const id = crypto.randomUUID ? crypto.randomUUID() : null;
+    const { error } = await this.sb.from('court_requests').insert({ ...(id ? { id } : {}), owner_name: ownerName, phone, venue_name: venueName, region: region || '', city: city || '',
       address: address || '', courts_count: Math.max(1, Math.min(60, +courtsCount || 1)), about: about || '', terms_ver: termsVer || '', doc_paths: docPaths,
       claim_court: claimCourt || null, lat: claimCourt ? null : lat, lng: claimCourt ? null : lng, email: (email || '').toLowerCase() });
     if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'Заявка с этим номером уже отправлена — администратор свяжется с вами' : error.message);
+    if (id) this.notify('adm_court_req', id);
   }
   async courtRequests() {
     return check(await this.sb.from('court_requests').select('*').order('created_at', { ascending: false }).limit(100)).map((r) => ({
@@ -879,7 +884,7 @@ export class SupabaseStore {
     const r = await this.sb.from('support_messages').select('id', { count: 'exact', head: true }).eq('user_id', this.uid()).eq('from_admin', true).is('read_at', null);
     return r.count || 0;
   }
-  async supportSend(text) { check(await this.sb.from('support_messages').insert({ user_id: this.uid(), text, from_admin: false })); }
+  async supportSend(text) { check(await this.sb.from('support_messages').insert({ user_id: this.uid(), text, from_admin: false })); this.notify('adm_support', this.uid()); }
   async supportRead(userId = null) { check(await this.sb.rpc('support_read', { p_user: userId })); }
   async supportThreads() {
     const rows = check(await this.sb.rpc('support_threads', { p_limit: 200 })) || [];

@@ -82,9 +82,19 @@ function currentRoute() {
 }
 
 // A newer version on the server → a thin banner "update" at the top (checked at start and every 30 min)
-let updateReady = null;
-const checkUpdate = async () => { const v = await newerVersion(); if (v && v !== updateReady) { updateReady = v; window.ACE_UPDATE = v; window.dispatchEvent(new Event('ace:data')); } };
-setTimeout(checkUpdate, 4000); setInterval(checkUpdate, 30 * 60e3);
+// When nothing is being typed and no window is open, the update is applied by itself (phones often only resume the app, not restart it)
+let updateReady = null; const startedAt = Date.now();
+const busy = () => !!document.querySelector('.sheet') || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
+const checkUpdate = async () => {
+  const v = await newerVersion(); if (!v) return;
+  if ((Date.now() - startedAt < 15e3 || document.visibilityState === 'visible') && !busy() && sessionStorage.getItem('ace_upd_try') !== v) {
+    try { sessionStorage.setItem('ace_upd_try', v); } catch { /* private mode */ }
+    updateApp(); return;
+  }
+  if (v !== updateReady) { updateReady = v; window.ACE_UPDATE = v; window.dispatchEvent(new Event('ace:data')); }
+};
+setTimeout(checkUpdate, 1500); setInterval(checkUpdate, 30 * 60e3);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
 
 let renderSeq = 0;
 // keepScroll: re-draw the same screen after an action or filter, without jumping to the top
