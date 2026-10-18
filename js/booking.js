@@ -626,6 +626,9 @@ export function courtRequestSheet(store) {
       <label class="f" for="qk">${L('Сколько кортов', 'Nechta kort')}</label><input id="qk" class="input" type="number" min="1" max="60" value="1">
       <label class="f" for="qn">${L('Ваше имя (владелец или управляющий)', 'Ismingiz (egasi yoki boshqaruvchi)')}*</label><input id="qn" class="input" required maxlength="80">
       <label class="f" for="qph">${L('Номер телефона', 'Telefon raqami')}*</label><input id="qph" class="input" type="tel" inputmode="tel" value="+998 " required>
+      <label class="f" for="qem">${L('Электронная почта', 'Elektron pochta')}*</label>
+      <input id="qem" class="input" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@gmail.com" required maxlength="120">
+      <div class="muted small" style="margin-top:6px">${L('После одобрения на эту почту придёт код для входа в приложение.', 'Tasdiqlangach shu pochtaga ilovaga kirish kodi keladi.')}</div>
       <label class="f" for="qab">${L('Комментарий', 'Izoh')}</label><textarea id="qab" class="input" maxlength="1000"></textarea>
       <label class="f">${L('Документ', 'Hujjat')}*</label>
       <div class="muted small">${L('Договор аренды, свидетельство или фото корта с вывеской — 1–3 фото. Видит только администратор.', 'Ijara shartnomasi, guvohnoma yoki vivyeskali kort rasmi — 1–3 ta. Faqat administrator ko‘radi.')}</div>
@@ -706,14 +709,16 @@ export function courtRequestSheet(store) {
       if (!v('qrg')) { toast(L('Выберите область', 'Viloyatni tanlang')); return; }
       const phone = normPhone(v('qph'));
       if (!phone) { toast(L('Введите номер в формате +998 90 123 45 67', 'Raqamni +998 90 123 45 67 shaklida kiriting')); return; }
+      const email = v('qem').toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast(L('Проверьте адрес почты', 'Pochta manzilini tekshiring')); return; }
       if (!loc.courtId && !loc.point) { toast(L('Отметьте корт на карте: нажмите на его метку или на место корта', 'Kortni xaritada belgilang')); el.querySelector('#qmap').scrollIntoView({ block: 'center' }); return; }
       if (!docs.length) { toast(L('Добавьте фото документа', 'Hujjat rasmini qo‘shing')); return; }
       act(el.querySelector('#qSend'), async () => {
-        await store.courtRequest({ ownerName: v('qn'), phone, venueName: v('qv'), region: v('qrg'), city: v('qc'), address: v('qa'), courtsCount: +v('qk') || 1, about: v('qab'), termsVer: TERMS_VERSION, docs,
+        await store.courtRequest({ ownerName: v('qn'), phone, venueName: v('qv'), region: v('qrg'), city: v('qc'), address: v('qa'), courtsCount: +v('qk') || 1, about: v('qab'), termsVer: TERMS_VERSION, docs, email,
           claimCourt: loc.courtId || null, lat: loc.point?.lat ?? null, lng: loc.point?.lng ?? null });
         close();
         sheet(`<h2 class="h">${L('Заявка отправлена', 'Ariza yuborildi')}</h2>
-          <div>${L('Администратор проверит документ и позвонит вам. После одобрения нажмите «Регистрация» и в анкете укажите этот же номер телефона — кабинет корта включится автоматически.', 'Administrator qo‘ng‘iroq qiladi. Tasdiqlangach «Ro‘yxatdan o‘tish»ni bosing va anketada shu raqamni kiriting — kort kabineti avtomatik yoqiladi.')}</div>
+          <div>${L('Администратор проверит заявку и позвонит вам. После одобрения на вашу почту придёт письмо с кодом. Откройте ace-tennis.uz, нажмите «Войти по коду из письма», введите почту и код и придумайте пароль — откроется кабинет корта. Письмо может попасть в «Спам».', 'Administrator arizani tekshirib qo‘ng‘iroq qiladi. Tasdiqlangach pochtangizga kodli xat keladi. ace-tennis.uz da «Xatdagi kod bilan kirish»ni bosing, pochta va kodni kiriting, parol o‘ylab toping. Xat «Spam»ga tushishi mumkin.')}</div>
           <button class="btn ball block mt" data-close>${L('Понятно', 'Tushunarli')}</button>`);
       });
     });
@@ -728,7 +733,7 @@ export async function adminCourtRequests(store, region = '') {
   return `<div class="card hl"><h2 class="h">${L('Заявки кортов', 'Kort arizalari')} · ${rs.length}</h2>
     ${rs.map((r) => `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px">
       <div class="strong">${esc(r.venueName)}</div><div class="muted small">${esc(regionShort(r.region))}${r.city ? ' · ' + esc(r.city) : ''}${r.address ? ' · ' + esc(r.address) : ''} · ${r.courtsCount} ${L('корт.', 'kort')}</div>
-      <div class="small">${esc(r.ownerName)} · <a href="tel:+${esc(r.phone)}">+${esc(r.phone)}</a></div>${r.about ? `<div class="small muted">${esc(r.about)}</div>` : ''}
+      <div class="small">${esc(r.ownerName)} · <a href="tel:+${esc(r.phone)}">+${esc(r.phone)}</a>${r.email ? ` · ✉️ ${esc(r.email)}` : ''}</div>${r.about ? `<div class="small muted">${esc(r.about)}</div>` : ''}
       ${r.docs?.length ? `<button class="btn ghost sm mt" data-qdocs="${r.id}">${L('Документы', 'Hujjatlar')} (${r.docs.length})</button>` : ''}
       <label class="f">${L('Это корт из списка?', 'Ro‘yxatdagi kortmi?')}</label>
       ${r.lat != null ? `<div class="small mt">📍 ${L('Новая метка', 'Yangi belgi')}: <a href="${esc(yandexLink({ lat: r.lat, lng: r.lng }))}" target="_blank" rel="noopener">${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}</a></div>` : ''}
@@ -744,8 +749,13 @@ export function bindAdminCourtRequests(root, store, done) {
   }));
   root.querySelectorAll('[data-qyes]').forEach((b) => b.addEventListener('click', (e) => act(e.currentTarget, async () => {
     const courtId = root.querySelector(`[data-qcourt="${b.dataset.qyes}"]`)?.value || null;
+    const req = (await store.courtRequests()).find((x) => x.id === b.dataset.qyes);
     await store.resolveCourtRequest(b.dataset.qyes, true, courtId);
-    toast(L('Одобрено. Владелец укажет этот номер в анкете — и получит кабинет корта.', 'Tasdiqlandi.')); done();
+    if (req?.email) {
+      try { await store.sendInviteCode(req.email); toast(L(`Одобрено. Код для входа отправлен на ${req.email}`, `Tasdiqlandi. Kod ${req.email} ga yuborildi`)); }
+      catch (err) { toast(L('Одобрено, но письмо не ушло: ', 'Tasdiqlandi, lekin xat ketmadi: ') + err.message); }
+    } else toast(L('Одобрено', 'Tasdiqlandi'));
+    done();
   })));
   root.querySelectorAll('[data-qno]').forEach((b) => b.addEventListener('click', (e) => act(e.currentTarget, async () => { await store.resolveCourtRequest(b.dataset.qno, false); toast(L('Отклонено', 'Rad etildi')); done(); })));
 }

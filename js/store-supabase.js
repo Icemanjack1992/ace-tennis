@@ -120,6 +120,7 @@ export class SupabaseStore {
     this.usersAt = 0; this.syncAt = null; this.fullAt = 0; this.syncRegion = null; this.cache = new Map(); this.pendingLast = null;
     // Load the Supabase library right away, in parallel with everything else
     this.ready = import(LIB).then(({ createClient }) => {
+      this.sbFactory = createClient;
       this.sb = createClient(url, key, { auth: { persistSession: true } });
       // keep the saved copy of this account's login fresh (the token changes about once an hour)
       this.sb.auth.onAuthStateChange((ev, ses) => { if (ses && (ev === 'TOKEN_REFRESHED' || ev === 'SIGNED_IN')) accSaveTokens(ses); });
@@ -303,9 +304,20 @@ export class SupabaseStore {
   async signInEmail(email, password) {
     const { error } = await this.sb.auth.signInWithPassword({ email, password });
     if (error) throw new Error(authError(error.message));
+    await this.claimInvite();
     snapClear(); this.invalidate(); await this.refresh(true);
     return { user: this.meCache };
   }
+  // Admin approved a coach / court: a sign-in code goes to the e-mail of the request.
+  // A separate client without a saved session, so the admin stays signed in.
+  async sendInviteCode(email) {
+    await this.ready;
+    const tmp = this.sbFactory(this.url, this.key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'ace-invite-tmp' } });
+    const { error } = await tmp.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    if (error) throw new Error(authError(error.message));
+  }
+  // After every sign-in: an approved coach / court request for my e-mail switches the account
+  async claimInvite() { try { await this.sb.rpc('claim_my_invite'); } catch { /* not critical */ } }
   // Registration with a code: the letter proves the address exists and belongs to the user,
   // then the user creates a password (the account is created when the code is confirmed)
   async signUpCode(email) {
@@ -317,6 +329,7 @@ export class SupabaseStore {
     if (v.error) throw new Error(authError(v.error.message));
     const u = await this.sb.auth.updateUser({ password });
     if (u.error && !/should be different|same.*password/i.test(u.error.message)) throw new Error(authError(u.error.message));
+    await this.claimInvite();
     snapClear(); this.invalidate(); await this.refresh(true);
     return { user: this.meCache };
   }
@@ -330,6 +343,7 @@ export class SupabaseStore {
     if (v.error) throw new Error(authError(v.error.message));
     const u = await this.sb.auth.updateUser({ password });
     if (u.error) throw new Error(authError(u.error.message));
+    await this.claimInvite();
     snapClear(); this.invalidate(); await this.refresh(true);
     return { user: this.meCache };
   }
@@ -686,7 +700,7 @@ export class SupabaseStore {
   async hideComment(newsId, cid) { check(await this.sb.from('news_comments').delete().eq('id', cid)); }
 
   // ---------- coach requests (login screen → admin) ----------
-  async coachRequest({ firstName, lastName, phone, experience, about, termsVer, region, docs = [] }) {
+  async coachRequest({ firstName, lastName, phone, email = '', experience, about, termsVer, region, docs = [] }) {
     // Document photos go to a private folder: only the administrator can open them
     const docPaths = [];
     for (const f of docs) {
@@ -694,12 +708,12 @@ export class SupabaseStore {
       check(await this.sb.storage.from('coach-docs').upload(path, f, { contentType: 'image/jpeg' }));
       docPaths.push(path);
     }
-    const { error } = await this.sb.from('coach_requests').insert({ first_name: firstName, last_name: lastName, phone, experience: experience || null, about: about || '', terms_ver: termsVer || '', region: region || '', doc_paths: docPaths });
+    const { error } = await this.sb.from('coach_requests').insert({ first_name: firstName, last_name: lastName, phone, experience: experience || null, about: about || '', terms_ver: termsVer || '', region: region || '', doc_paths: docPaths, email: (email || '').toLowerCase() });
     if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'Заявка с этим номером уже отправлена — администратор свяжется с вами' : error.message);
   }
   async coachRequests() {
     return check(await this.sb.from('coach_requests').select('*').order('created_at', { ascending: false }).limit(100)).map((r) => ({
-      id: r.id, firstName: r.first_name, lastName: r.last_name, phone: r.phone, experience: r.experience, about: r.about, region: r.region || '', docs: r.doc_paths || [], status: r.status, createdAt: r.created_at }));
+      id: r.id, firstName: r.first_name, lastName: r.last_name, phone: r.phone, experience: r.experience, about: r.about, region: r.region || '', docs: r.doc_paths || [], status: r.status, createdAt: r.created_at, email: r.email || '' }));
   }
   async resolveCoachRequest(id, approve, region = null) { check(await this.sb.rpc('resolve_coach_request', { p_id: id, p_approve: !!approve, p_region: region || null })); }
   // Temporary links (10 minutes) to the document photos of a coach request
@@ -724,7 +738,7 @@ export class SupabaseStore {
   }
 
   // ---------- court accounts and booking (supabase/update-12.sql) ----------
-  async courtRequest({ ownerName, phone, venueName, region, city, address, courtsCount, about, termsVer, docs = [], claimCourt = null, lat = null, lng = null }) {
+  async courtRequest({ ownerName, phone, email = '', venueName, region, city, address, courtsCount, about, termsVer, docs = [], claimCourt = null, lat = null, lng = null }) {
     const docPaths = [];
     for (const f of docs) {
       const path = `req/${fileId()}.jpg`;
@@ -733,14 +747,14 @@ export class SupabaseStore {
     }
     const { error } = await this.sb.from('court_requests').insert({ owner_name: ownerName, phone, venue_name: venueName, region: region || '', city: city || '',
       address: address || '', courts_count: Math.max(1, Math.min(60, +courtsCount || 1)), about: about || '', terms_ver: termsVer || '', doc_paths: docPaths,
-      claim_court: claimCourt || null, lat: claimCourt ? null : lat, lng: claimCourt ? null : lng });
+      claim_court: claimCourt || null, lat: claimCourt ? null : lat, lng: claimCourt ? null : lng, email: (email || '').toLowerCase() });
     if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'Заявка с этим номером уже отправлена — администратор свяжется с вами' : error.message);
   }
   async courtRequests() {
     return check(await this.sb.from('court_requests').select('*').order('created_at', { ascending: false }).limit(100)).map((r) => ({
       id: r.id, ownerName: r.owner_name, phone: r.phone, venueName: r.venue_name, region: r.region, city: r.city, address: r.address, courtsCount: r.courts_count,
       about: r.about, docs: r.doc_paths || [], status: r.status, courtId: r.court_id, createdAt: r.created_at,
-      claimCourt: r.claim_court || null, lat: r.lat ?? null, lng: r.lng ?? null }));
+      claimCourt: r.claim_court || null, lat: r.lat ?? null, lng: r.lng ?? null, email: r.email || '' }));
   }
   async resolveCourtRequest(id, approve, courtId = null) { return check(await this.sb.rpc('resolve_court_request', { p_id: id, p_approve: !!approve, p_court: courtId || null })); }
   async court(id) {

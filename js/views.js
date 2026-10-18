@@ -152,6 +152,8 @@ export const login = {
             <button type="button" class="linkbtn" id="pwShow" style="position:absolute;right:6px;top:6px;height:36px;padding:0 10px;border:0;background:transparent;font-weight:700;color:var(--muted);cursor:pointer">${L('Показать', 'Ko‘rsatish')}</button></div>
           <div class="muted small mt" id="pwHint" hidden>${L('Минимум 6 символов. Запомните пароль — он нужен для входа с другого телефона.', 'Kamida 6 belgi. Parolni eslab qoling.')}</div>
           <button class="btn ball block mt" type="submit" id="mailBtn">${L('Войти', 'Kirish')}</button>
+          <button type="button" class="btn ghost block mt" data-invite>${L('Войти по коду из письма', 'Xatdagi kod bilan kirish')}</button>
+          <div class="muted small center" style="margin-top:6px">${L('Для тренеров и кортов, чью заявку одобрили', 'Arizasi tasdiqlangan murabbiy va kortlar uchun')}</div>
           <div class="center mt" id="forgot"><button type="button" class="linkbtn" data-forgot style="border:0;background:transparent;color:var(--court);font-weight:700;text-decoration:underline;cursor:pointer;padding:8px">${L('Забыли пароль?', 'Parolni unutdingizmi?')}</button></div>
         </form>
       </div>` : ''}
@@ -287,6 +289,7 @@ export const login = {
     root.querySelector('[data-coach-req]')?.addEventListener('click', () => coachRequestSheet(store));
     root.querySelector('[data-court-req]')?.addEventListener('click', () => courtRequestSheet(store));
     root.querySelector('[data-forgot]')?.addEventListener('click', () => emailCodeSheet(store, root.querySelector('#em')?.value.trim().toLowerCase() || '', 'reset'));
+    root.querySelector('[data-invite]')?.addEventListener('click', () => emailCodeSheet(store, root.querySelector('#em')?.value.trim().toLowerCase() || '', 'invite'));
   },
 };
 
@@ -294,9 +297,15 @@ export const login = {
 //  'signup' — registration: the code proves that the mailbox exists and belongs to the user;
 //  'reset'  — forgotten password.
 function emailCodeSheet(store, email0, kind) {
-  const up = kind === 'signup';
-  sheet(`<h2 class="h">${up ? L('Регистрация', 'Ro‘yxatdan o‘tish') : L('Восстановление пароля', 'Parolni tiklash')}</h2>
-    <form id="fp1">
+  const inv = kind === 'invite';
+  const up = kind === 'signup' || inv;
+  sheet(`<h2 class="h">${inv ? L('Вход по коду из письма', 'Xatdagi kod bilan kirish') : up ? L('Регистрация', 'Ro‘yxatdan o‘tish') : L('Восстановление пароля', 'Parolni tiklash')}</h2>
+    ${inv ? `<div class="muted">${L('Администратор одобрил заявку и отправил код на вашу почту. Введите почту и код, придумайте пароль — дальше входите почтой и этим паролем.', 'Administrator arizani tasdiqlab pochtangizga kod yubordi. Pochta va kodni kiriting, parol o‘ylab toping.')}</div>
+    <form id="fp0"><label class="f" for="iem">${L('Электронная почта из заявки', 'Arizadagi pochta')}</label>
+      <input id="iem" class="input" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@gmail.com" value="${esc(email0)}" required>
+      <button class="btn ball block mt" id="fpHave">${L('У меня есть код', 'Menda kod bor')}</button>
+      <button type="button" class="btn ghost block mt" id="fpNew">${L('Кода нет или он устарел — прислать новый', 'Kod yo‘q yoki eskirgan — yangisini yuborish')}</button></form>` : ''}
+    <form id="fp1" ${inv ? 'hidden' : ''}>
       <div class="muted">${up ? L('Введите почту — мы пришлём на неё код. Так мы проверим, что почта настоящая и ваша.', 'Pochtangizni kiriting — unga kod yuboramiz. Shunday qilib pochta haqiqiy va sizniki ekanini tekshiramiz.') : L('Мы отправим на почту код подтверждения.', 'Pochtaga tasdiqlash kodini yuboramiz.')}</div>
       <label class="f" for="fem">${L('Электронная почта', 'Elektron pochta')}</label>
       <input id="fem" class="input" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@gmail.com" value="${esc(email0)}" required>
@@ -324,6 +333,16 @@ function emailCodeSheet(store, email0, kind) {
       send(el.querySelector('#fpSend'));
     });
     el.querySelector('#fpAgain').addEventListener('click', (e) => send(e.currentTarget));
+    if (inv) {
+      const take = () => { email = el.querySelector('#iem').value.trim().toLowerCase(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast(L('Проверьте адрес почты', 'Pochta manzilini tekshiring')); return false; } return true; };
+      el.querySelector('#fp0').addEventListener('submit', (e) => {
+        e.preventDefault(); if (!take()) return;
+        el.querySelector('#fp0').hidden = true; el.querySelector('#fp2').hidden = false;
+        el.querySelector('#fpHint').textContent = L(`Введите код из письма, которое пришло на ${email}.`, `${email} ga kelgan xatdagi kodni kiriting.`);
+        el.querySelector('#fcode').focus();
+      });
+      el.querySelector('#fpNew').addEventListener('click', (e) => { if (!take()) return; el.querySelector('#fp0').hidden = true; send(e.currentTarget); });
+    }
     el.querySelector('#fp2').addEventListener('submit', (e) => {
       e.preventDefault();
       const code = el.querySelector('#fcode').value.replace(/\D/g, ''); const pw = el.querySelector('#fpw').value;
@@ -349,6 +368,9 @@ function coachRequestSheet(store) {
       <select id="crg" class="input" required><option value="">—</option>${REGIONS.map((r) => `<option value="${r.code}">${esc(L(r.ru, r.uz))}</option>`).join('')}</select>
       <label class="f" for="cph">${L('Номер телефона', 'Telefon raqami')}*</label>
       <input id="cph" class="input" type="tel" inputmode="tel" autocomplete="tel" value="+998 " required>
+      <label class="f" for="cem">${L('Электронная почта', 'Elektron pochta')}*</label>
+      <input id="cem" class="input" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@gmail.com" required maxlength="120">
+      <div class="muted small" style="margin-top:6px">${L('После одобрения на эту почту придёт код для входа в приложение.', 'Tasdiqlangach shu pochtaga ilovaga kirish kodi keladi.')}</div>
       <label class="f" for="cex">${L('Опыт тренера', 'Murabbiylik tajribasi')}*</label>
       <select id="cex" class="input" required><option value="">—</option>${EXPERIENCE.map(([v, ru, uz]) => `<option value="${v}">${esc(L(ru, uz))}</option>`).join('')}</select>
       <label class="f" for="cab">${L('О себе: где тренируете, с кем работаете, цена', 'O‘zingiz haqingizda: qayerda, kim bilan, narx')}</label>
@@ -379,12 +401,14 @@ function coachRequestSheet(store) {
       if (!v('crg')) { toast(L('Выберите область', 'Viloyatni tanlang')); return; }
       const phone = normPhone(v('cph'));
       if (!phone) { toast(L('Введите номер в формате +998 90 123 45 67', 'Raqamni +998 90 123 45 67 shaklida kiriting')); return; }
+      const email = v('cem').toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast(L('Проверьте адрес почты', 'Pochta manzilini tekshiring')); return; }
       if (!docs.length) { toast(L('Добавьте фото документа', 'Hujjat rasmini qo‘shing')); return; }
       act(el.querySelector('#crSend'), async () => {
-        await store.coachRequest({ firstName: v('cfn'), lastName: v('cln'), phone, experience: +v('cex') || null, about: v('cab'), region: v('crg'), termsVer: TERMS_VERSION, docs });
+        await store.coachRequest({ firstName: v('cfn'), lastName: v('cln'), phone, email, experience: +v('cex') || null, about: v('cab'), region: v('crg'), termsVer: TERMS_VERSION, docs });
         close();
         sheet(`<h2 class="h">${L('Заявка отправлена', 'Ariza yuborildi')}</h2>
-          <div>${L('Администратор проверит документ и позвонит вам. После одобрения нажмите «Регистрация», введите почту и пароль, а в анкете укажите этот же номер телефона — профиль тренера включится автоматически.', 'Administrator sizga qo‘ng‘iroq qiladi. Tasdiqlangach «Ro‘yxatdan o‘tish»ni bosing va anketada shu raqamni kiriting — murabbiy profili avtomatik yoqiladi.')}</div>
+          <div>${L('Администратор проверит заявку и позвонит вам. После одобрения на вашу почту придёт письмо с кодом. Откройте ace-tennis.uz, нажмите «Войти по коду из письма», введите почту и код и придумайте пароль — профиль тренера включится сам. Письмо может попасть в «Спам».', 'Administrator arizani tekshirib qo‘ng‘iroq qiladi. Tasdiqlangach pochtangizga kodli xat keladi. ace-tennis.uz da «Xatdagi kod bilan kirish»ni bosing, pochta va kodni kiriting, parol o‘ylab toping. Xat «Spam»ga tushishi mumkin.')}</div>
           <button class="btn ball block mt" data-close>${L('Понятно', 'Tushunarli')}</button>`);
       });
     });
@@ -1588,12 +1612,13 @@ export const admin = {
         <label class="f" for="ip">${L('Телефон', 'Telefon')}</label><input class="input" id="ip" type="tel" value="+998" required><button class="btn ball block mt">${L('Пригласить', 'Taklif qilish')}</button></form>`;
       const rs = (await store.coachRequests()).filter((r) => !aState.region || r.region === aState.region);
       const st = { new: [L('новая', 'yangi'), 'warn'], approved: [L('одобрена', 'tasdiqlandi'), 'ok'], rejected: [L('отклонена', 'rad etildi'), 'bad'] };
-      body = `${regionSelect('aRegion', aState.region)}${inviteForm}<div class="muted">${L('Позвоните тренеру и после разговора нажмите «Одобрить». Тренер регистрируется по почте и указывает в анкете этот номер — роль тренера включится сама.', 'Murabbiyga qo‘ng‘iroq qiling va «Tasdiqlash»ni bosing. Murabbiy anketada shu raqamni kiritsa, murabbiy roli o‘zi yoqiladi.')}</div>
+      body = `${regionSelect('aRegion', aState.region)}${inviteForm}<div class="muted">${L('Позвоните тренеру и после разговора нажмите «Одобрить». На почту из заявки сразу уйдёт код: тренер нажимает на экране входа «Войти по коду из письма» — и попадает в профиль тренера.', 'Murabbiyga qo‘ng‘iroq qiling va «Tasdiqlash»ni bosing. Arizadagi pochtaga kod yuboriladi: murabbiy «Xatdagi kod bilan kirish»ni bosadi.')}</div>
         ${rs.map((r) => `<div class="card"><div class="row between"><span class="strong">${esc(r.firstName)} ${esc(r.lastName)}</span><span class="tag ${st[r.status][1]}">${st[r.status][0]}</span></div>
           <div class="muted">${r.region ? `<b>${esc(regionShort(r.region))}</b> · ` : `${L('область не указана', 'viloyat ko‘rsatilmagan')} · `}${yearsText(r.experience, 'exp')} · ${fmtDate(r.createdAt, true)}</div>
           ${r.about ? `<div class="mt">${esc(r.about)}</div>` : ''}
           ${r.docs?.length ? `<div class="row mt" data-docs="${esc(JSON.stringify(r.docs))}" style="gap:8px;flex-wrap:wrap"><span class="muted small">${L('Загружаем документы…', 'Hujjatlar yuklanmoqda…')}</span></div>`
             : `<div class="mt"><span class="tag bad">${L('без документа', 'hujjatsiz')}</span></div>`}
+          ${r.email ? `<div class="small mt">✉️ ${esc(r.email)}</div>` : `<div class="small mt muted">${L('Почта не указана (старая заявка) — тренер войдёт по номеру телефона в анкете', 'Pochta yo‘q (eski ariza)')}</div>`}
           <a class="btn ghost sm" href="tel:+${esc(String(r.phone).replace(/\D/g, ''))}" style="width:100%;margin-top:10px">📞 ${esc(fmtPhone(String(r.phone).replace(/\D/g, '')))}</a>
           ${r.status === 'new' ? `<label class="f" for="creg-${r.id}">${L('Область тренера', 'Murabbiy viloyati')}</label><select class="input" id="creg-${r.id}">${REGIONS.map((x) => `<option value="${x.code}" ${x.code === r.region ? 'selected' : ''}>${esc(regionShort(x.code))}</option>`).join('')}</select>
           <div class="muted small" style="margin-top:6px">${r.docs?.length ? L('После одобрения тренер получит отметку «Проверенный тренер».', 'Tasdiqlangach murabbiy «Tekshirilgan murabbiy» belgisini oladi.') : L('Без документа тренер будет без отметки «Проверенный».', 'Hujjatsiz murabbiy «Tekshirilgan» belgisiz bo‘ladi.')}</div>
@@ -1653,8 +1678,14 @@ export const admin = {
     root.querySelectorAll('[data-ent]').forEach((b) => b.addEventListener('click', () => act(b, async () => { const [t, u, k] = b.dataset.ent.split(':'); await store.approveEntry(t, u, k === '1'); rerender(); })));
     root.querySelectorAll('[data-start]').forEach((b) => b.addEventListener('click', () => act(b, async () => { await store.startTournament(b.dataset.start); toast(L('Сетка создана', 'To‘r yaratildi')); rerender(); })));
     root.querySelectorAll('[data-creq]').forEach((b) => b.addEventListener('click', () => act(b, async () => {
-      const [id, k] = b.dataset.creq.split(':'); await store.resolveCoachRequest(id, k === '1', root.querySelector(`#creg-${id}`)?.value || null);
-      toast(k === '1' ? L('Одобрено. Тренер получит роль после регистрации с этим номером', 'Tasdiqlandi') : L('Заявка отклонена', 'Ariza rad etildi')); rerender();
+      const [id, k] = b.dataset.creq.split(':');
+      const req = (await store.coachRequests()).find((x) => x.id === id);
+      await store.resolveCoachRequest(id, k === '1', root.querySelector(`#creg-${id}`)?.value || null);
+      if (k === '1' && req?.email) {
+        try { await store.sendInviteCode(req.email); toast(L(`Одобрено. Код для входа отправлен на ${req.email}`, `Tasdiqlandi. Kod ${req.email} ga yuborildi`)); }
+        catch (err) { toast(L('Одобрено, но письмо не ушло: ', 'Tasdiqlandi, lekin xat ketmadi: ') + err.message); }
+      } else toast(k === '1' ? L('Одобрено. Тренер получит роль, когда укажет этот номер в анкете', 'Tasdiqlandi') : L('Заявка отклонена', 'Ariza rad etildi'));
+      rerender();
     })));
     root.querySelectorAll('[data-banu]').forEach((b) => b.addEventListener('click', () => { const u = store.user(b.dataset.banu) || { id: b.dataset.banu }; banSheet(store, u, rerender); }));
     root.querySelectorAll('[data-unban]').forEach((b) => b.addEventListener('click', () => act(b, async () => { await unban(store, b.dataset.unban); rerender(); })));

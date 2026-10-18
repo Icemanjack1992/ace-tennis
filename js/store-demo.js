@@ -219,7 +219,15 @@ export class DemoStore {
 
   // ---------- users ----------
   async saveProfile(patch) {
-    const u = this.me(); Object.assign(u, patch); this.save(); return clone(u);
+    const u = this.me(); Object.assign(u, patch);
+    // like set_my_phone: the phone of an approved court request opens the court account
+    const dg = String(patch.phone || '').replace(/\D/g, '');
+    const req = dg && (this.db.courtRequests || []).find((r) => r.status === 'approved' && String(r.phone).replace(/\D/g, '') === dg);
+    if (req && (u.role === 'player' || u.role === 'court')) {
+      const c = this.db.courts.find((x) => x.id === req.courtId);
+      if (c) { this.db.courts.forEach((x) => { if (x.ownerId === u.id) x.ownerId = null; }); c.ownerId = u.id; u.role = 'court'; if (!u.region) u.region = c.region; }
+    }
+    this.save(); return clone(u);
   }
   user(id) { return this.db.users.find((u) => u.id === id) || null; }
   async listUsers({ role } = {}) {
@@ -607,6 +615,7 @@ export class DemoStore {
   async pushKey() { throw new Error('В демо-режиме уведомления не отправляются'); }
   async savePushSub() {}
   async deletePushSub() {}
+  async sendInviteCode() {}
   async coachRequests() { return clone(this.db.coachRequests || []); }
   async resolveCoachRequest(id, approve, region = null) {
     const r = (this.db.coachRequests || []).find((x) => x.id === id);
