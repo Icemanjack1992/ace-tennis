@@ -480,8 +480,8 @@ export class SupabaseStore {
   async cancelOwn(kind, id) { check(await this.sb.rpc('cancel_own', { p_kind: kind, p_id: id })); }
   async history(userId) {
     const [mr, tr] = await Promise.all([
-      this.sb.from('matches').select(MATCH_COLS).eq('status', 'confirmed').or(`team_a.cs.{${userId}},team_b.cs.{${userId}}`).order('played_at', { ascending: false }).limit(50),
-      this.sb.from('trainings').select('*').eq('status', 'confirmed').or(`player_id.eq.${userId},coach_id.eq.${userId}`).order('played_at', { ascending: false }).limit(50),
+      this.sb.from('matches').select(MATCH_COLS).eq('status', 'confirmed').or(`team_a.cs.{${userId}},team_b.cs.{${userId}}`).order('played_at', { ascending: false }).limit(1000),
+      this.sb.from('trainings').select('*').eq('status', 'confirmed').or(`player_id.eq.${userId},coach_id.eq.${userId}`).order('played_at', { ascending: false }).limit(1000),
     ]);
     const out = { matches: check(mr).map(toMatch), trainings: check(tr).map(toTraining) };
     await this.ensureUsers([...out.matches.flatMap((m) => [...m.teamA, ...m.teamB]), ...out.trainings.flatMap((t) => [t.playerId, t.coachId])]);

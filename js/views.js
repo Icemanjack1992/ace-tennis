@@ -860,6 +860,68 @@ export const add = {
 // =====================================================================
 // Profile
 // =====================================================================
+// ---------- personal stats by period ----------
+const statState = { period: 'season' };
+const STAT_PERIODS = [['month', 'Месяц', 'Oy'], ['season', 'Сезон', 'Mavsum'], ['year', 'Год', 'Yil'], ['all', 'Всё', 'Hammasi']];
+function periodRange(period, shift = 0) {
+  const now = new Date();
+  if (period === 'all') return shift ? null : [new Date(0), new Date(8.64e15)];
+  if (period === 'month') { const s = new Date(now.getFullYear(), now.getMonth() - shift, 1); return [s, new Date(s.getFullYear(), s.getMonth() + 1, 1)]; }
+  if (period === 'year') { const y = now.getFullYear() - shift; return [new Date(y, 0, 1), new Date(y + 1, 0, 1)]; }
+  // season = calendar quarter of the league season: Mar–May, Jun–Aug, Sep–Nov, Dec–Feb
+  const m = now.getMonth(); const startM = m === 11 ? 11 : m < 2 ? -1 : m - ((m - 2) % 3);
+  const s = new Date(now.getFullYear(), startM - 3 * shift, 1);
+  return [s, new Date(s.getFullYear(), s.getMonth() + 3, 1)];
+}
+function calcStats(hist, id, range) {
+  const inR = (d) => { const t = new Date(d); return t >= range[0] && t < range[1]; };
+  const ms = hist.matches.filter((m) => inR(m.playedAt));
+  const tr = hist.trainings.filter((t) => t.playerId === id && inR(t.playedAt));
+  let wins = 0, setsW = 0, setsL = 0, gW = 0, gL = 0, delta = 0, cur = 0, best = 0, run = 0;
+  const opp = new Set();
+  [...ms].reverse().forEach((m) => {
+    const onA = m.teamA.includes(id); const w = wonBy(m, id);
+    if (w) { wins++; run++; best = Math.max(best, run); } else run = 0;
+    (m.sets || []).forEach((s) => { const a = +s[0] || 0, b = +s[1] || 0; const [me_, op] = onA ? [a, b] : [b, a]; gW += me_; gL += op; if (me_ > op) setsW++; else if (op > me_) setsL++; });
+    (onA ? m.teamB : m.teamA).forEach((o) => opp.add(o));
+    delta += m.deltas?.[id] || 0;
+  });
+  for (const m of ms) { if (wonBy(m, id)) cur++; else break; }
+  const coaches = {};
+  tr.forEach((t) => { if (t.coachId) coaches[t.coachId] = (coaches[t.coachId] || 0) + 1; });
+  return { n: ms.length, wins, losses: ms.length - wins, pct: ms.length ? Math.round((wins / ms.length) * 100) : 0, setsW, setsL, gW, gL, delta, cur, best, opp: opp.size,
+    tn: tr.length, th: tr.reduce((s, t) => s + (+t.hours || 0), 0), coaches };
+}
+function statsCard(hist, id, store) {
+  const p = statState.period; const st = calcStats(hist, id, periodRange(p));
+  const prevR = periodRange(p, 1); const prev = prevR ? calcStats(hist, id, prevR) : null;
+  const diff = (a, b) => { if (!prev) return ''; const d = a - b; if (!d) return `<div class="small muted">${L('как в прошлом', 'avvalgidek')}</div>`; return `<div class="small strong" style="color:${d > 0 ? 'var(--court-2)' : 'var(--bad)'}">${d > 0 ? '+' : '−'}${Math.abs(d)} ${L('к прошлому', 'oldingiga')}</div>`; };
+  const cell = (num, label, extra = '') => `<div class="kv" style="flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border:1px solid var(--line, rgba(0,0,0,.08));border-radius:14px;margin:0"><div class="num" style="font-size:22px">${num}</div><div class="muted small">${label}</div>${extra}</div>`;
+  const coachList = Object.entries(st.coaches).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([cid, n]) => `${esc(shortName(store.user(cid)))} · ${n}`).join(', ');
+  const deltaTxt = st.n ? `<span style="color:${st.delta >= 0 ? 'var(--court-2)' : 'var(--bad)'}">${st.delta >= 0 ? '+' : '−'}${Math.abs(st.delta)}</span>` : '—';
+  return `<div class="card"><div class="row between"><h2 class="h" style="margin:0">${L('Статистика', 'Statistika')}</h2></div>
+    <div class="seg mt" id="statPeriod">${STAT_PERIODS.map(([k, ru, uz]) => `<button class="${p === k ? 'on' : ''}" data-speriod="${k}">${L(ru, uz)}</button>`).join('')}</div>
+    <div class="muted small mt">${L('Матчи', 'O‘yinlar')}</div>
+    <div class="grid2" style="gap:8px;margin-top:6px">
+      ${cell(st.n, L('матчей', 'o‘yin'), diff(st.n, prev?.n))}
+      ${cell(`${st.pct}%`, `${st.wins} ${L('В', 'G')} · ${st.losses} ${L('П', 'M')}`, prev ? diff(st.wins, prev.wins) : '')}
+      ${cell(`${st.setsW}:${st.setsL}`, L('сеты', 'setlar'))}
+      ${cell(`${st.gW}:${st.gL}`, L('геймы', 'geymlar'))}
+      ${cell(st.opp, L('разных соперников', 'turli raqib'))}
+      ${cell(deltaTxt, L('изменение рейтинга', 'reyting o‘zgarishi'))}
+      ${cell(st.cur, L('побед подряд сейчас', 'ketma-ket g‘alaba'))}
+      ${cell(st.best, L('лучшая серия', 'eng yaxshi seriya'))}
+    </div>
+    <div class="muted small mt">${L('Тренировки', 'Mashg‘ulotlar')}</div>
+    <div class="grid2" style="gap:8px;margin-top:6px">
+      ${cell(st.tn, L('тренировок', 'mashg‘ulot'), diff(st.tn, prev?.tn))}
+      ${cell(comma(Math.round(st.th * 10) / 10), L('часов на корте', 'soat kortda'))}
+    </div>
+    ${coachList ? `<div class="muted small mt">${L('Тренеры', 'Murabbiylar')}: ${coachList}</div>` : ''}
+    ${!st.n && !st.tn ? `<div class="empty mt">${L('За этот период пока пусто', 'Bu davrda hali bo‘sh')}</div>` : ''}
+  </div>`;
+}
+
 function sparkline(points) {
   if (points.length < 2) return '';
   const w = 326, h = 70, min = Math.min(...points), max = Math.max(...points), span = Math.max(1, max - min);
@@ -952,6 +1014,7 @@ export const profile = {
     </div>
     <div class="wrap">
       ${awardsHtml(ach)}
+      ${isCoach ? '' : statsCard(hist, id, store)}
       <div class="card"><div class="row between"><h2 class="h" style="margin:0">${L('Форма', 'Forma')}</h2><span class="muted strong">${u.matches} ${L('матч.', 'o‘yin')} · ${u.wins} ${L('В', 'G')} · ${u.matches - u.wins} ${L('П', 'M')}</span></div>
         <div class="mt">${formBadges(u.form, 'big')}</div>${sparkline(path)}
         <div class="row between muted small" style="margin-top:4px"><span>${L('старт', 'boshlanish')} · ${fmtNum(path[0])}</span><span>${L('сейчас', 'hozir')} · ${fmtNum(u.rating)}</span></div></div>
@@ -1001,6 +1064,7 @@ export const profile = {
     root.querySelectorAll('[data-l]').forEach((b) => b.addEventListener('click', async () => { setLang(b.dataset.l); try { await store.saveProfile({ lang: b.dataset.l }); } catch { /* demo */ } rerender(); }));
     root.querySelector('[data-logout]')?.addEventListener('click', async () => { await store.signOut(); go('#/login'); });
     root.querySelector('[data-accs]')?.addEventListener('click', () => accountsSheet(store));
+    root.querySelectorAll('[data-speriod]').forEach((b) => b.addEventListener('click', () => { statState.period = b.dataset.speriod; rerender(); }));
   },
 };
 
