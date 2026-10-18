@@ -1,5 +1,5 @@
 // Ace Tennis service worker: app shell works offline and opens instantly; data always goes to the network.
-const CACHE = 'ace-v26';
+const CACHE = 'ace-v27';
 const EXT = 'ace-ext-v1'; // supabase library from jsdelivr and fonts: saved once, then opened from the phone
 const SHELL = [
   './', './index.html', './css/app.css', './js/config.js', './js/app.js', './js/ui.js', './js/views.js', './js/terms.js', './js/regions.js', './js/courts.js', './js/share.js',
@@ -8,14 +8,16 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' — take the files from the server, not from the browser's HTTP cache (otherwise an old file can sneak in)
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== EXT).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
-// Shell: stale-while-revalidate. Supabase API: always network.
+// Shell: network first (so a release is visible right after reopening; all files of one version together),
+// the saved copy when there is no network or the network is slow (> 3 s). Supabase API: always network.
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
@@ -31,8 +33,10 @@ self.addEventListener('fetch', (e) => {
   if (url.pathname.endsWith('/version.txt')) return; // always from the network: tells the app about updates
   e.respondWith(caches.open(CACHE).then(async (cache) => {
     const cached = await cache.match(e.request, { ignoreSearch: true });
-    const fresh = fetch(e.request).then((res) => { if (res.ok) cache.put(e.request, res.clone()); return res; }).catch(() => cached);
-    return cached || fresh;
+    const net = fetch(e.request, { cache: 'no-cache' }).then((res) => { if (res.ok) cache.put(e.request, res.clone()); return res; });
+    if (!cached) return net;
+    const slow = new Promise((ok) => setTimeout(() => ok(cached), 3000));
+    return Promise.race([net.catch(() => cached), slow]);
   }));
 });
 
