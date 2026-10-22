@@ -139,6 +139,7 @@ export const login = {
     return `<div class="hero" style="min-height:48vh;display:flex;flex-direction:column;justify-content:flex-end;gap:14px">
       <div class="brand" style="font-size:30px">${logo(56)} Ace Tennis</div>
       <div class="sub" style="font-size:16px">${L('Сообщество любителей тенниса Узбекистана: рейтинг, соперники, тренеры, турниры', 'O‘zbekiston tennis havaskorlari jamoasi: reyting, raqiblar, murabbiylar, turnirlar')}</div>
+      ${matchMedia('(display-mode: standalone)').matches || navigator.standalone ? '' : `<a href="/install" style="align-self:flex-start;display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:99px;padding:8px 14px;font-weight:700;font-size:14px;text-decoration:none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#D8F244" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>${L('Установить приложение на телефон', 'Ilovani telefonga o‘rnatish')}</a>`}
     </div>
     <div class="wrap">
       ${saved.length ? `<div class="card"><div class="strong">${L('Сохранённые аккаунты', 'Saqlangan akkauntlar')}</div><div class="muted small">${L('Нажмите, чтобы войти без пароля', 'Parolsiz kirish uchun bosing')}</div>${saved.map(accRow).join('')}</div>` : ''}
