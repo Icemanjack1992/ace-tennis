@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Установить Ace Tennis</title>
+<meta name="description" content="Установите Ace Tennis на телефон — значок появится на экране, как у обычного приложения.">
+<meta name="theme-color" content="#0E3B2C">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta property="og:title" content="Ace Tennis — установить приложение">
+<meta property="og:description" content="Соперники по уровню, рейтинг, турниры, тренеры и корты. Бесплатно.">
+<meta property="og:image" content="/icons/icon-512.png">
+<style>
+:root { --court:#0E3B2C; --court2:#15513D; --ball:#D8F244; --ink:#10231B; --muted:#5A6B62; --bg:#F3F5EC; --line:#DCE3D6; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--court); color: #fff; font-family: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; -webkit-text-size-adjust: 100%; }
+.wrap { max-width: 460px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; padding: calc(28px + env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom)); position: relative; overflow: hidden; }
+.wrap:before { content: ''; position: absolute; inset: 14px; border: 1.5px solid rgba(255,255,255,.08); border-radius: 18px; pointer-events: none; }
+.wrap:after { content: ''; position: absolute; left: 14px; right: 14px; top: 50%; border-top: 1.5px solid rgba(255,255,255,.08); pointer-events: none; }
+.top { text-align: center; position: relative; z-index: 1; }
+.icon { width: 96px; height: 96px; border-radius: 22px; box-shadow: 0 10px 30px rgba(0,0,0,.35); display: block; margin: 8px auto 16px; }
+h1 { font-family: 'Oswald', 'Arial Narrow', sans-serif; font-weight: 700; font-size: 34px; letter-spacing: .04em; text-transform: uppercase; margin: 0; }
+.tag { color: #C9D8CF; font-size: 15px; margin: 8px 0 0; line-height: 1.4; }
+.feats { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 18px 0 6px; }
+.feats span { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 99px; padding: 6px 12px; font-size: 13px; color: #E6EEE9; }
+.card { position: relative; z-index: 1; background: #fff; color: var(--ink); border-radius: 22px; padding: 20px; margin-top: 22px; box-shadow: 0 12px 34px rgba(0,0,0,.25); }
+.card h2 { margin: 0 0 4px; font-size: 18px; }
+.card p { margin: 0 0 14px; color: var(--muted); font-size: 14px; line-height: 1.45; }
+.btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; border: 0; border-radius: 16px; padding: 17px; font: inherit; font-weight: 800; font-size: 17px; background: var(--ball); color: var(--court); cursor: pointer; text-decoration: none; }
+.btn.dark { background: var(--court); color: #fff; }
+.btn svg { width: 22px; height: 22px; }
+.ghost { display: block; text-align: center; margin-top: 12px; color: var(--court); font-weight: 700; font-size: 14px; text-decoration: none; }
+.steps { list-style: none; padding: 0; margin: 4px 0 0; counter-reset: s; }
+.steps li { counter-increment: s; display: flex; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.35; }
+.steps li:first-child { border-top: 0; }
+.steps li:before { content: counter(s); flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; background: var(--ball); color: var(--court); font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.k { display: inline-flex; align-items: center; gap: 5px; background: #EEF2E9; border: 1px solid var(--line); border-radius: 8px; padding: 2px 7px; font-weight: 700; white-space: nowrap; }
+.k svg { width: 16px; height: 16px; }
+.note { background: #F4FBCB; color: #4F4300; border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.4; margin-top: 12px; }
+.arrow { position: fixed; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 5; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--ball); font-weight: 800; font-size: 13px; animation: bob 1.2s ease-in-out infinite; pointer-events: none; }
+.arrow svg { width: 34px; height: 34px; }
+@keyframes bob { 0%,100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 8px); } }
+.done { text-align: center; }
+.done .ok { width: 56px; height: 56px; border-radius: 50%; background: #E3EFE7; color: #1f7a3f; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; font-size: 30px; }
+.foot { position: relative; z-index: 1; margin-top: auto; padding-top: 22px; text-align: center; font-size: 12px; color: #9DB5A8; }
+.foot a { color: #C9D8CF; }
+[hidden] { display: none !important; }
+.qr { display: flex; gap: 14px; align-items: center; }
+.qr img { width: 120px; height: 120px; border-radius: 10px; border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <img class="icon" src="/icons/icon-512.png" alt="Ace Tennis">
+    <h1>Ace Tennis</h1>
+    <p class="tag">Теннисное сообщество Узбекистана.<br>Бесплатно, без App Store и Play Market.</p>
+    <div class="feats"><span>🎾 Соперники по уровню</span><span>🏆 Рейтинг и турниры</span><span>📍 Корты и бронь</span></div>
+  </div>
+
+  <!-- Android / Chrome: real one-tap install -->
+  <div class="card" id="vAndroid" hidden>
+    <h2>Установить на телефон</h2>
+    <p>Одно нажатие — и значок Ace Tennis появится на главном экране, как у обычного приложения.</p>
+    <button class="btn" id="bInstall"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>Установить приложение</button>
+    <div id="aManual" hidden>
+      <ol class="steps">
+        <li>Нажмите <span class="k">⋮</span> вверху справа в Chrome</li>
+        <li>Выберите <span class="k">Установить приложение</span> или «Добавить на гл. экран»</li>
+        <li>Нажмите <span class="k">Установить</span></li>
+      </ol>
+    </div>
+    <a class="ghost" href="/#/home">Открыть в браузере без установки →</a>
+  </div>
+
+  <!-- iPhone Safari -->
+  <div class="card" id="vIos" hidden>
+    <h2>Добавьте Ace Tennis на экран «Домой»</h2>
+    <p>3 нажатия — и приложение будет открываться значком, на весь экран, с уведомлениями.</p>
+    <ol class="steps">
+      <li><span>Нажмите <span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="#0A84FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0L8 7m4-4 4 4M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>Поделиться</span> внизу экрана</span></li>
+      <li><span>Прокрутите вниз и выберите <span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8v8M8 12h8"/></svg>На экран «Домой»</span></span></li>
+      <li><span>Нажмите <span class="k">Добавить</span> вверху справа</span></li>
+    </ol>
+    <div class="note">Если открыли ссылку в Telegram или Instagram — нажмите <b>⋯</b> и выберите <b>«Открыть в Safari»</b>.</div>
+  </div>
+
+  <!-- In-app browser (Telegram / Instagram) -->
+  <div class="card" id="vInapp" hidden>
+    <h2>Откройте в браузере</h2>
+    <p>Встроенный браузер Telegram/Instagram не умеет устанавливать приложения.</p>
+    <ol class="steps">
+      <li>Нажмите <span class="k">⋯</span> вверху справа</li>
+      <li>Выберите <span class="k" id="inappBr">Открыть в браузере</span></li>
+    </ol>
+    <button class="btn dark" id="bCopy" style="margin-top:12px">Скопировать ссылку</button>
+  </div>
+
+  <!-- Computer -->
+  <div class="card" id="vDesktop" hidden>
+    <h2>Откройте на телефоне</h2>
+    <div class="qr"><img alt="QR" src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=6&data=https%3A%2F%2Face-tennis.uz%2Finstall"><p style="margin:0">Наведите камеру телефона на QR-код или откройте <b>ace-tennis.uz/install</b> на телефоне.</p></div>
+    <a class="btn" href="/#/home" style="margin-top:14px">Открыть на компьютере</a>
+  </div>
+
+  <!-- Already installed -->
+  <div class="card done" id="vDone" hidden>
+    <div class="ok">✓</div>
+    <h2>Ace Tennis установлен</h2>
+    <p>Значок на главном экране телефона. Откройте приложение им.</p>
+    <a class="btn" href="/#/home">Открыть Ace Tennis</a>
+  </div>
+
+  <div class="foot">ace-tennis.uz · 16+</div>
+</div>
+<div class="arrow" id="arrow" hidden><span>Поделиться</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16m0 0-6-6m6 6 6-6"/></svg></div>
+
+<script>
+(function () {
+  var ua = navigator.userAgent, q = new URLSearchParams(location.search), force = q.get('os');
+  var ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var android = /Android/.test(ua);
+  var inapp = /Telegram|Instagram|FBAN|FBAV|Line\//i.test(ua) || (ios && !/Safari/.test(ua));
+  var standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  var view = force || (standalone ? 'done' : inapp ? 'inapp' : ios ? 'ios' : android ? 'android' : 'desktop');
+  function show(v) {
+    ['Android', 'Ios', 'Inapp', 'Desktop', 'Done'].forEach(function (n) { document.getElementById('v' + n).hidden = n.toLowerCase() !== v; });
+    document.getElementById('arrow').hidden = v !== 'ios';
+  }
+  show(view);
+  if (/Telegram/i.test(ua)) document.getElementById('inappBr').textContent = ios ? 'Открыть в Safari' : 'Открыть в Chrome';
+  // Android: in Chrome the address bar can't hand the page over to Chrome from Telegram, but an intent link can
+  if (android && inapp) {
+    var b = document.getElementById('bCopy'); b.textContent = 'Открыть в Chrome';
+    b.onclick = function () { location.href = 'intent://ace-tennis.uz/install#Intent;scheme=https;package=com.android.chrome;end'; };
+  } else {
+    document.getElementById('bCopy').onclick = function () {
+      navigator.clipboard && navigator.clipboard.writeText('https://ace-tennis.uz/install');
+      this.textContent = 'Ссылка скопирована — вставьте в браузер';
+    };
+  }
+  var deferred = null;
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); deferred = e; });
+  window.addEventListener('appinstalled', function () { show('done'); });
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function () {});
+  document.getElementById('bInstall').onclick = function () {
+    if (deferred) {
+      deferred.prompt();
+      deferred.userChoice.then(function (r) { if (r.outcome === 'accepted') show('done'); deferred = null; });
+    } else {
+      document.getElementById('aManual').hidden = false; this.hidden = true;
+    }
+  };
+})();
+</script>
+</body>
+</html>
